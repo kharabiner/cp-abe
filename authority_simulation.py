@@ -19,14 +19,11 @@ def simulate_key_authority():
     cpabe = DynamicCPABE()
     cpabe.setup()
 
-    # 테스트용 페이딩 함수 설정
-    # 5초 후 만료, 최대 2회 갱신 가능
+    # 구독 속성에만 페이딩 함수 등록
     subscription_function = HardExpiryFadingFunction("subscription", 5, max_renewals=2)
     cpabe.register_fading_function("subscription", subscription_function)
 
-    # 모델 속성은 정적
-    model_function = LinearFadingFunction("model", float("inf"))
-    cpabe.register_fading_function("model", model_function)
+    # 모델 속성은 정적이므로 페이딩 함수 등록 불필요
 
     # 키 관리 기관 초기화
     authority = KeyAuthority(cpabe)

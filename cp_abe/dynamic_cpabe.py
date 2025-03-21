@@ -78,8 +78,10 @@ class DynamicCPABE(FadingCPABE):  # IoTCPABE 대신 FadingCPABE 상속
         """
         페이딩 함수를 사용하여 현재 속성 값 계산
         """
+        # 페이딩 함수가 등록되지 않은 속성은 정적 속성으로 간주
         if attribute_name not in self.fading_functions:
-            raise ValueError(f"페이딩 함수가 정의되지 않은 속성: {attribute_name}")
+            # 정적 속성은 일관된 값을 반환 (시간에 영향을 받지 않음)
+            return f"{attribute_name}_static"
 
         return self.fading_functions[attribute_name].compute_current_value(current_time)
 
@@ -159,15 +161,13 @@ class DynamicCPABE(FadingCPABE):  # IoTCPABE 대신 FadingCPABE 상속
         expired_attrs = []
 
         for attr_name, attr_value in key["dynamic_attributes"].items():
+            # 페이딩 함수가 등록되지 않은 속성은 정적으로 간주하고 항상 유효함
             if attr_name not in self.fading_functions:
-                # 정의되지 않은 속성은 항상 유효하다고 가정
                 valid_attrs.append(attr_name)
                 continue
 
-            # 현재 이 속성에 대한 값 계산
+            # 동적 속성의 현재 값 계산 및 비교
             current_value = self.compute_attribute_value(attr_name)
-
-            # 저장된 값과 현재 계산된 값 비교
             if attr_value == current_value:
                 valid_attrs.append(attr_name)
             else:

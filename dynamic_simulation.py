@@ -15,15 +15,13 @@ def test_dynamic_attributes():
     cpabe = DynamicCPABE()
     cpabe.setup()
 
-    # 특별한 페이딩 함수 설정 - 짧은 테스트를 위해
+    # 구독 속성에만 페이딩 함수 등록 (동적 속성)
     test_subscription = HardExpiryFadingFunction(
         "subscription", 10, max_renewals=1
     )  # 10초 후 만료, 최대 1회 갱신
     cpabe.register_fading_function("subscription", test_subscription)
 
-    # 모델 속성은 정적
-    static_model = LinearFadingFunction("model", float("inf"))  # 변경되지 않음
-    cpabe.register_fading_function("model", static_model)
+    # 모델 속성은 정적이므로 페이딩 함수 등록 불필요
 
     # 사용자 생성
     user_id = cpabe.create_user_record("test_user")

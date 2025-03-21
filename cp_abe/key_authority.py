@@ -118,10 +118,14 @@ class KeyAuthority:
         current_renewals = len(self.renewal_history[renewal_key])
 
         # 3. 정책에 따른 갱신 가능 여부 결정
-
-        # 3.1. 최대 갱신 횟수 확인
+        # 3.1. 최대 갱신 횟수 확인 (구독 모델에서는 이 부분 불필요)
+        # 구독 속성에 대해서는 최대 갱신 횟수 제한을 적용하지 않음
         max_renewals = policy.get("max_renewals")
-        if max_renewals is not None and current_renewals >= max_renewals:
+        if (
+            max_renewals is not None
+            and current_renewals >= max_renewals
+            and attribute_name != "subscription"
+        ):
             print(f"갱신 거부: 최대 갱신 횟수({max_renewals}회) 초과")
             return {"success": False, "reason": "max_renewals_exceeded"}
 
