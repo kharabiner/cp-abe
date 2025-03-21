@@ -89,9 +89,3 @@ cp-abe/
 ├── file_encryption.py      # 파일 암호화/복호화 데모
 └── main.py                 # 기본 실행 스크립트
 ```
-
-## 특허 및 논문 관련 정보
-
-- **시간 기반 속성 만료**: 논문 "Temporal Attribute-Based Encryption for IoT" 참조
-- **부분 키 갱신 메커니즘**: 특허 출원 중인 기술 "Efficient Key Update for IoT Devices"
-- **오프라인 속성 갱신**: 논문 "Offline-capable Attribute Update Mechanism" 참조
