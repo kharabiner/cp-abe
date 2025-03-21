@@ -1,5 +1,5 @@
 from cp_abe.dynamic_cpabe import DynamicCPABE
-from cp_abe.fading_functions import LinearFadingFunction
+from cp_abe.fading_functions import LinearFadingFunction, HardExpiryFadingFunction
 from datetime import datetime, timedelta
 import time
 import json
@@ -16,7 +16,9 @@ def test_dynamic_attributes():
     cpabe.setup()
 
     # 특별한 페이딩 함수 설정 - 짧은 테스트를 위해
-    test_subscription = LinearFadingFunction("subscription", 10)  # 10초마다 값이 변경됨
+    test_subscription = HardExpiryFadingFunction(
+        "subscription", 10, max_renewals=1
+    )  # 10초 후 만료, 최대 1회 갱신
     cpabe.register_fading_function("subscription", test_subscription)
 
     # 모델 속성은 정적
@@ -53,13 +55,22 @@ def test_dynamic_attributes():
     else:
         print("키가 유효하지 않습니다. 복호화 실패!")
 
-    # 시간 경과 시뮬레이션 - 12초 동안 2초마다 키 상태 확인
+    # 시간 경과 시뮬레이션 수정 - 만료 후 더 오래 기다리기
     print("\n실시간 속성 페이딩 시뮬레이션 시작:")
     start_time = time.time()
 
-    while time.time() - start_time < 12:
+    # 갱신 여부를 추적하기 위한 플래그
+    subscription_renewed = False
+
+    while time.time() - start_time < 22:  # 22초로 증가 (두 번 만료되는지 확인)
         elapsed = time.time() - start_time
         print(f"\n{elapsed:.1f}초 경과:")
+
+        # 현재 subscription 속성의 예상되는 값 출력 (디버깅용)
+        current_sub_value = cpabe.compute_attribute_value("subscription")
+        key_sub_value = key["dynamic_attributes"].get("subscription", "없음")
+        print(f"키의 subscription 값: {key_sub_value}")
+        print(f"현재 계산된 subscription 값: {current_sub_value}")
 
         # 키 유효성 검사
         validity = cpabe.check_key_validity(key)
@@ -77,8 +88,8 @@ def test_dynamic_attributes():
         else:
             print("키가 만료되어 복호화 불가능")
 
-            # 만료된 속성 갱신
-            if "subscription" in validity["expired_attrs"]:
+            # 만료된 속성 갱신 (최초 한 번만)
+            if "subscription" in validity["expired_attrs"] and not subscription_renewed:
                 print("\n만료된 subscription 속성 갱신 중...")
                 new_attr = cpabe.update_attribute(user_id, "subscription")
                 print(f"새 속성 값: {new_attr['attribute_value']}")
@@ -87,6 +98,8 @@ def test_dynamic_attributes():
                 key = cpabe.merge_attribute_to_key(key, new_attr)
                 print("키 갱신 완료")
 
+                subscription_renewed = True  # 갱신 플래그 설정
+
                 # 갱신된 키로 다시 복호화 시도
                 validity = cpabe.check_key_validity(key)
                 if validity["valid"]:
@@ -94,8 +107,14 @@ def test_dynamic_attributes():
                     print(f"갱신된 키로 복호화 성공: {decrypted}")
                 else:
                     print("갱신 후에도 키가 여전히 유효하지 않음")
+            else:
+                # 이미 갱신했는데도 만료된 경우
+                if subscription_renewed:
+                    print(
+                        "이미 갱신한 키가 다시 만료되었습니다 (Fading Function 동작 확인)"
+                    )
 
-        time.sleep(2)  # 2초 대기
+        time.sleep(2)  # 2초마다 확인
 
     print("\n실시간 페이딩 테스트 완료")
 
