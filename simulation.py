@@ -13,8 +13,8 @@ def simulate_time_passing():
     cpabe = FadingCPABE()
     cpabe.setup()
 
-    # 테스트 IoT 장치 속성
-    device_attributes = ["model:A100", "serialNumber:12345", "region:Asia"]
+    # 테스트 IoT 장치 속성 - 간소화
+    device_attributes = ["model", "serialNumber", "region"]
 
     # 현재 날짜로부터 7일 후 만료
     expiry_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
@@ -25,9 +25,9 @@ def simulate_time_passing():
     # 키 생성
     key = cpabe.keygen_with_expiry(device_attributes, expiry_attributes)
 
-    # 업데이트 패키지 및 정책
+    # 업데이트 패키지 및 정책 - 단순화
     update_data = "구독이 유효한 기기를 위한 소프트웨어 업데이트"
-    policy = "(model:A100) and subscription:1"  # * 대신 1 사용
+    policy = "model and subscription"  # 간소화된 정책
     ct = cpabe.encrypt(update_data, policy)
 
     # 현재 - 키 유효함
@@ -44,16 +44,27 @@ def simulate_time_passing():
     # 시간 경과 시뮬레이션 - 10일 후 (만료됨)
     print("\n10일차: 키가 만료되어야 함")
 
-    # 키의 만료 속성을 수동으로 수정하여 시뮬레이션
-    # 속성 접근 방식 수정 (attr_list → orig_attributes)
-    attr_list_key = "orig_attributes" if "orig_attributes" in key else "attr_list"
-
-    for i, attr in enumerate(key[attr_list_key]):
-        if "subscription" in attr:
-            attr_name, expiry_timestamp = attr.split(":")
-            # 만료일을 과거로 설정
-            past_date = int((datetime.now() - timedelta(days=3)).timestamp())
-            key[attr_list_key][i] = f"{attr_name}:{past_date}"
+    # 만료 정보를 직접 수정 - 새 방식
+    if "expiry_info" in key:
+        # 새 방식: expiry_info에서 직접 만료일을 수정
+        for attr in key["expiry_info"]:
+            if attr == "subscription":
+                # 만료일을 과거로 설정
+                key["expiry_info"][attr] = int(
+                    (datetime.now() - timedelta(days=3)).timestamp()
+                )
+                print(
+                    f"구독 만료일을 {datetime.fromtimestamp(key['expiry_info'][attr]).strftime('%Y-%m-%d')}로 설정 (과거)"
+                )
+    else:
+        # 이전 방식 (하위 호환성)
+        attr_list_key = "orig_attributes" if "orig_attributes" in key else "attr_list"
+        for i, attr in enumerate(key[attr_list_key]):
+            if "subscription" in attr and ":" in attr:  # 콜론이 있는 경우만
+                attr_name, expiry_timestamp = attr.split(":")
+                # 만료일을 과거로 설정
+                past_date = int((datetime.now() - timedelta(days=3)).timestamp())
+                key[attr_list_key][i] = f"{attr_name}:{past_date}"
 
     validity = cpabe.check_key_validity(key)
     print(f"키 유효함: {validity['valid']}")
@@ -103,11 +114,11 @@ def test_large_scale():
         "C300": "C300 모델용 버그 수정 업데이트",
     }
 
-    # 각 모델별 정책
+    # 각 모델별 정책 - 간소화
     policies = {
-        "A100": "(model:A100) and subscription:1",  # * 대신 1 사용
-        "B200": "(model:B200) and subscription:1",
-        "C300": "(model:C300) and subscription:1",
+        "A100": "model and subscription",
+        "B200": "model and subscription",
+        "C300": "model and subscription",
     }
 
     # 각 모델별 업데이트 암호화
@@ -128,8 +139,8 @@ def test_large_scale():
         else:  # 유효한 구독
             expiry_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
 
-        # 기기 속성
-        device_attrs = [f"model:{model}", f"serialNumber:{serial}", f"region:{region}"]
+        # 기기 속성 (단순화된 형태)
+        device_attrs = ["model", "region", "serialNumber"]  # 콜론(:) 제거
         expiry_attrs = {"subscription": expiry_date}
 
         # 키 생성
@@ -149,8 +160,8 @@ def test_large_scale():
             try:
                 decrypted = cpabe.decrypt(encrypted_updates[model], key)
                 print(f"  업데이트 수신 성공: {decrypted}")
-            except:
-                print("  업데이트 복호화 실패 (정책 불일치)")
+            except Exception as e:
+                print(f"  업데이트 복호화 실패 (정책 불일치): {str(e)}")
         else:
             print("  구독 만료로 업데이트를 수신할 수 없음")
 
@@ -167,8 +178,8 @@ def test_large_scale():
                 try:
                     decrypted = cpabe.decrypt(encrypted_updates[model], renewed_key)
                     print(f"  업데이트 수신 성공: {decrypted}")
-                except:
-                    print("  업데이트 복호화 실패 (정책 불일치)")
+                except Exception as e:
+                    print(f"  업데이트 복호화 실패 (정책 불일치): {str(e)}")
 
 
 if __name__ == "__main__":

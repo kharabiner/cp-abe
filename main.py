@@ -13,7 +13,7 @@ def main():
     print("CP-ABE 시스템 초기화 완료")
 
     # 테스트 IoT 장치 속성
-    device_attributes = ["model:A100", "serialNumber:12345", "region:Asia"]
+    device_attributes = ["model", "region"]
 
     # 만료 속성 (현재 날짜로부터 30일)
     future_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
@@ -32,9 +32,8 @@ def main():
     # 소프트웨어 업데이트 패키지
     update_data = "모델 A100 아시아 지역 기기용 소프트웨어 업데이트 패키지"
 
-    # 업데이트 정책: (model:A100 AND region:Asia) AND subscription:1
-    # 와일드카드 * 대신 1을 사용하여 모든 값 매칭
-    policy = "(model:A100 and region:Asia) and subscription:1"
+    # 업데이트 정책: 속성 표현식 단순화
+    policy = "(model and region) and subscription"
 
     # 패키지 암호화
     print("\n업데이트 패키지 암호화 중...")

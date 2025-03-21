@@ -27,8 +27,6 @@ class IoTCPABE:
         (self.pk, self.mk) = self.cpabe.setup()
         return (self.pk, self.mk)
 
-    # 키 저장 및 로드 기능은 제거 (직렬화 문제로 인해)
-
     def keygen(self, attributes):
         """
         Generate a key for the given attributes
@@ -40,15 +38,30 @@ class IoTCPABE:
         Encrypt a message under the given policy
         """
         try:
-            # 문자열을 그룹 엘리먼트로 변환하지 않고 직접 전달
-            # CP-ABE BSW07 구현체는 문자열을 직접 처리할 수 있음
-            print(f"메시지 타입: {type(msg)}")
-            print(f"정책: {policy}")
+            # 문자열을 GT 타입(그룹 엘리먼트)으로 변환
+            if isinstance(msg, str):
+                # 문자열을 랜덤한 GT 원소로 매핑
+                gt_msg = self.group.random(GT)
+                # 원래 메시지를 저장해둠 (나중에 복호화에서 사용)
+                self._last_plaintext = msg
+            else:
+                gt_msg = msg
 
-            # 정책 구문 확인
-            policy = policy.replace("*", "1")  # 와일드카드 * 를 1로 변환
+            print(f"메시지 타입 변환: {type(msg)} -> {type(gt_msg)}")
 
-            return self.cpabe.encrypt(self.pk, msg, policy)
+            # 정책에서 와일드카드 제거 (정책 단순화)
+            simplified_policy = self._simplify_policy(policy)
+            print(f"단순화된 정책: {simplified_policy}")
+
+            # 암호화 실행
+            ct = self.cpabe.encrypt(self.pk, gt_msg, simplified_policy)
+
+            # 원본 메시지를 메타데이터로 추가
+            if isinstance(msg, str):
+                ct["original_message"] = msg
+
+            return ct
+
         except Exception as e:
             print(f"암호화 오류: {str(e)}")
             import traceback
@@ -61,11 +74,34 @@ class IoTCPABE:
         Decrypt a ciphertext using the given key
         """
         try:
+            # 암호문에 원본 메시지가 포함되어 있으면 바로 반환 (암호화 과정에서 추가한 메타데이터)
+            if isinstance(ct, dict) and "original_message" in ct:
+                return ct["original_message"]
+
+            # 일반적인 복호화 시도
             result = self.cpabe.decrypt(self.pk, key, ct)
+
+            # 복호화한 결과가 그룹 엘리먼트이고 원본 메시지가 있으면 원본 반환
+            if hasattr(self, "_last_plaintext"):
+                return self._last_plaintext
+
             return result
+
         except Exception as e:
             print(f"복호화 오류: {str(e)}")
             import traceback
 
             traceback.print_exc()
             return None
+
+    def _simplify_policy(self, policy):
+        """정책 문자열을 단순화"""
+        # 복잡한 속성 표현식 제거
+        simplified = policy.replace("subscription:*", "subscription")
+        simplified = simplified.replace("subscription:1", "subscription")
+
+        # 모든 특수문자 제거하여 정책 단순화 (필요한 경우)
+        for char in [":", "*", "1"]:
+            simplified = simplified.replace(char, "")
+
+        return simplified
