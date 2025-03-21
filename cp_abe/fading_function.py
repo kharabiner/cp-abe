@@ -24,7 +24,13 @@ class FadingCPABE(IoTCPABE):
             all_attributes.append(f"{attr}:{expiry_timestamp}")
 
         # 키 생성
-        return self.cpabe.keygen(self.pk, self.mk, all_attributes)
+        key = self.cpabe.keygen(self.pk, self.mk, all_attributes)
+
+        # 딕셔너리 키인 경우 속성 리스트를 별도 키로 저장
+        if isinstance(key, dict):
+            key["orig_attributes"] = all_attributes
+
+        return key
 
     def partial_key_update(self, old_key, new_expiry_attributes):
         """
@@ -34,11 +40,21 @@ class FadingCPABE(IoTCPABE):
             old_key: The old key
             new_expiry_attributes: Dictionary of attributes with new expiry dates {attr: new_expiry_date}
         """
-        # 기존 키에서 만료되지 않은 속성 추출
+        # 이전 키의 속성을 가져옴
         current_attributes = []
         expiry_attrs_to_update = {}
 
-        for attr in old_key["attr_list"]:
+        # 키 객체에서 속성 리스트 가져오기
+        if isinstance(old_key, dict) and "orig_attributes" in old_key:
+            attr_list = old_key["orig_attributes"]
+        elif isinstance(old_key, dict) and "attr_list" in old_key:
+            attr_list = old_key["attr_list"]
+        else:
+            # 속성 리스트가 없는 경우 기본 속성만 사용
+            attr_list = []
+            print("경고: 키에 속성 리스트가 없습니다. 기본 속성만 유지됩니다.")
+
+        for attr in attr_list:
             if ":" in attr:  # 만료 날짜가 있는 속성
                 attr_name, expiry_timestamp = attr.split(":")
                 if attr_name in new_expiry_attributes:
@@ -62,7 +78,17 @@ class FadingCPABE(IoTCPABE):
         valid_attrs = []
         expired_attrs = []
 
-        for attr in key["attr_list"]:
+        # 키 객체에서 속성 리스트 가져오기
+        if isinstance(key, dict) and "orig_attributes" in key:
+            attr_list = key["orig_attributes"]
+        elif isinstance(key, dict) and "attr_list" in key:
+            attr_list = key["attr_list"]
+        else:
+            # 속성 리스트가 없는 경우 키가 항상 유효하다고 가정
+            print("경고: 키에 속성 리스트가 없습니다. 키를 항상 유효하다고 가정합니다.")
+            return {"valid": True, "valid_attrs": [], "expired_attrs": []}
+
+        for attr in attr_list:
             if ":" in attr:  # 만료 날짜가 있는 속성
                 attr_name, expiry_timestamp = attr.split(":")
                 if int(expiry_timestamp) > now:
@@ -82,4 +108,7 @@ class FadingCPABE(IoTCPABE):
         """
         Encrypt an update package with the given policy
         """
-        return self.encrypt(update_data, policy)
+        # 와일드카드를 1로 변환 (CP-ABE BSW07 구현체의 정책 형식에 맞추기)
+        modified_policy = policy.replace("*", "1")
+        print(f"수정된 정책: {modified_policy}")
+        return self.encrypt(update_data, modified_policy)

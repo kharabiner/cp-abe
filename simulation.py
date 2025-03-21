@@ -27,7 +27,7 @@ def simulate_time_passing():
 
     # 업데이트 패키지 및 정책
     update_data = "구독이 유효한 기기를 위한 소프트웨어 업데이트"
-    policy = "(model:A100) and subscription:*"
+    policy = "(model:A100) and subscription:1"  # * 대신 1 사용
     ct = cpabe.encrypt(update_data, policy)
 
     # 현재 - 키 유효함
@@ -43,13 +43,17 @@ def simulate_time_passing():
 
     # 시간 경과 시뮬레이션 - 10일 후 (만료됨)
     print("\n10일차: 키가 만료되어야 함")
+
     # 키의 만료 속성을 수동으로 수정하여 시뮬레이션
-    for i, attr in enumerate(key["attr_list"]):
+    # 속성 접근 방식 수정 (attr_list → orig_attributes)
+    attr_list_key = "orig_attributes" if "orig_attributes" in key else "attr_list"
+
+    for i, attr in enumerate(key[attr_list_key]):
         if "subscription" in attr:
             attr_name, expiry_timestamp = attr.split(":")
             # 만료일을 과거로 설정
             past_date = int((datetime.now() - timedelta(days=3)).timestamp())
-            key["attr_list"][i] = f"{attr_name}:{past_date}"
+            key[attr_list_key][i] = f"{attr_name}:{past_date}"
 
     validity = cpabe.check_key_validity(key)
     print(f"키 유효함: {validity['valid']}")
@@ -101,9 +105,9 @@ def test_large_scale():
 
     # 각 모델별 정책
     policies = {
-        "A100": "(model:A100) and subscription:*",
-        "B200": "(model:B200) and subscription:*",
-        "C300": "(model:C300) and subscription:*",
+        "A100": "(model:A100) and subscription:1",  # * 대신 1 사용
+        "B200": "(model:B200) and subscription:1",
+        "C300": "(model:C300) and subscription:1",
     }
 
     # 각 모델별 업데이트 암호화

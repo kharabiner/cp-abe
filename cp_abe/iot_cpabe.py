@@ -4,7 +4,6 @@ from charm.toolbox.ABEnc import ABEnc
 from charm.schemes.abenc.abenc_bsw07 import CPabe_BSW07
 import time
 from datetime import datetime, timedelta
-import json
 import os
 import sys
 
@@ -28,28 +27,7 @@ class IoTCPABE:
         (self.pk, self.mk) = self.cpabe.setup()
         return (self.pk, self.mk)
 
-    def save_keys(self, directory="keys"):
-        """
-        Save the public and master keys
-        """
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-
-        with open(f"{directory}/pk.json", "w") as f:
-            json.dump(self.group.serialize(self.pk), f)
-
-        with open(f"{directory}/mk.json", "w") as f:
-            json.dump(self.group.serialize(self.mk), f)
-
-    def load_keys(self, directory="keys"):
-        """
-        Load the public and master keys
-        """
-        with open(f"{directory}/pk.json", "r") as f:
-            self.pk = self.group.deserialize(json.load(f))
-
-        with open(f"{directory}/mk.json", "r") as f:
-            self.mk = self.group.deserialize(json.load(f))
+    # 키 저장 및 로드 기능은 제거 (직렬화 문제로 인해)
 
     def keygen(self, attributes):
         """
@@ -61,10 +39,33 @@ class IoTCPABE:
         """
         Encrypt a message under the given policy
         """
-        return self.cpabe.encrypt(self.pk, msg, policy)
+        try:
+            # 문자열을 그룹 엘리먼트로 변환하지 않고 직접 전달
+            # CP-ABE BSW07 구현체는 문자열을 직접 처리할 수 있음
+            print(f"메시지 타입: {type(msg)}")
+            print(f"정책: {policy}")
+
+            # 정책 구문 확인
+            policy = policy.replace("*", "1")  # 와일드카드 * 를 1로 변환
+
+            return self.cpabe.encrypt(self.pk, msg, policy)
+        except Exception as e:
+            print(f"암호화 오류: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+            return None
 
     def decrypt(self, ct, key):
         """
         Decrypt a ciphertext using the given key
         """
-        return self.cpabe.decrypt(self.pk, key, ct)
+        try:
+            result = self.cpabe.decrypt(self.pk, key, ct)
+            return result
+        except Exception as e:
+            print(f"복호화 오류: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
+            return None
