@@ -141,8 +141,28 @@ class CPABEFileEncryption:
                 f"메타데이터: {metadata['encryption_type']}, 정책: {metadata['policy']}"
             )
 
-            # 2. 키 유효성 검사
+            # 2. 키 유효성 검사 (속성 만료 여부 확인)
             validity = self.cpabe.check_key_validity(device_key)
+
+            # 구독 속성이 필요하고 만료된 경우를 명시적으로 검사
+            policy_attrs = metadata["policy"].split(" AND ")
+            required_attrs = [attr.strip().lower() for attr in policy_attrs]
+
+            # 구독이 정책에 포함되어 있는지 확인
+            subscription_required = any(
+                attr.startswith("subscription") for attr in required_attrs
+            )
+
+            # 구독 속성 만료 여부 확인
+            subscription_expired = "subscription" in validity["expired_attrs"]
+
+            # 만료된 속성이 있고, 그것이 정책에 필요한 속성인 경우
+            if subscription_required and subscription_expired:
+                print(
+                    "오류: 구독이 만료되었습니다. 이 파일에는 유효한 구독이 필요합니다."
+                )
+                return False
+
             if not validity["valid"]:
                 print(
                     f"오류: 키가 만료되었습니다. 만료된 속성: {validity['expired_attrs']}"
@@ -151,8 +171,7 @@ class CPABEFileEncryption:
 
             # 3. CP-ABE로 AES 키 복호화
             try:
-                # 직렬화된 CP-ABE 암호문을 직접 복호화 (복구 과정 필요 없음)
-                # 이 부분은 단순화를 위해 암호문을 문자열 형태로 처리
+                # 직렬화된 CP-ABE 암호문을 직접 복호화
                 decrypted_key_base64 = self.cpabe.decrypt(serialized_key, device_key)
                 aes_key = base64.b64decode(decrypted_key_base64)
                 print("CP-ABE 키 복호화 성공: AES 키 복구됨")
