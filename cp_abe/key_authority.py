@@ -39,10 +39,20 @@ class KeyAuthority:
         # 사용자 ID 생성
         user_id = self.cpabe.create_user_record(device_id)
 
+        # 구독 속성 자동 추가 (필요한 경우)
+        complete_attributes = list(initial_attributes)
+        if "subscription" not in complete_attributes:
+            complete_attributes.append("subscription")
+
         # DynamicCPABE에 맞는 방식으로 키 생성
         if hasattr(self.cpabe, "keygen_with_dynamic_attributes"):
             # DynamicCPABE 클래스의 경우
-            key = self.cpabe.keygen_with_dynamic_attributes(user_id, initial_attributes)
+            key = self.cpabe.keygen_with_dynamic_attributes(
+                user_id, complete_attributes
+            )
+            print(
+                f"디버그: 동적 속성 생성됨 - {list(key['dynamic_attributes'].keys())}"
+            )
         else:
             # FadingCPABE 클래스의 경우
             # 기본 속성과 만료 속성 분리

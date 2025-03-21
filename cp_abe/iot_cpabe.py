@@ -96,9 +96,14 @@ class IoTCPABE:
 
     def _simplify_policy(self, policy):
         """정책 문자열을 단순화"""
-        # 복잡한 속성 표현식 제거
-        simplified = policy.replace("subscription:*", "subscription")
-        simplified = simplified.replace("subscription:1", "subscription")
+        # subscription 속성 사례에서 발생하는 오류 수정
+        simplified = policy.replace("subscription_", "subscription")
+        simplified = simplified.replace("subscription:", "subscription")
+
+        # 정책 마지막에 있는 밑줄+숫자 패턴 제거
+        import re
+
+        simplified = re.sub(r"subscription_\d+", "subscription", simplified)
 
         # 모든 특수문자 제거하여 정책 단순화 (필요한 경우)
         for char in [":", "*", "1"]:

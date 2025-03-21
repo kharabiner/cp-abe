@@ -141,35 +141,57 @@ class CPABEFileEncryption:
                 f"메타데이터: {metadata['encryption_type']}, 정책: {metadata['policy']}"
             )
 
-            # 2. 키 유효성 검사 (속성 만료 여부 확인)
-            validity = self.cpabe.check_key_validity(device_key)
-
-            # 구독 속성이 필요하고 만료된 경우를 명시적으로 검사
+            # 정책 속성 추출
             policy_attrs = metadata["policy"].split(" AND ")
-            required_attrs = [attr.strip().lower() for attr in policy_attrs]
 
-            # 구독이 정책에 포함되어 있는지 확인
+            # 구독이 필요한지 확인
             subscription_required = any(
-                attr.startswith("subscription") for attr in required_attrs
+                "subscription" in attr.lower() for attr in policy_attrs
             )
+            print(f"구독이 필요한 파일: {subscription_required}")
 
-            # 구독 속성 만료 여부 확인
-            subscription_expired = "subscription" in validity["expired_attrs"]
+            # 구독이 필요하고 구독 속성이 만료되었는지 직접 검사
+            if subscription_required:
+                if (
+                    "dynamic_attributes" not in device_key
+                    or "subscription" not in device_key["dynamic_attributes"]
+                ):
+                    print("오류: 키에 구독 속성이 없습니다")
+                    return False
 
-            # 만료된 속성이 있고, 그것이 정책에 필요한 속성인 경우
-            if subscription_required and subscription_expired:
-                print(
-                    "오류: 구독이 만료되었습니다. 이 파일에는 유효한 구독이 필요합니다."
+                # 현재 시간 기준으로 구독 속성의 기대값 계산
+                expected_subscription = self.cpabe.compute_attribute_value(
+                    "subscription"
                 )
+                current_subscription = device_key["dynamic_attributes"]["subscription"]
+
+                print(f"기대되는 구독값: {expected_subscription}")
+                print(f"키의 구독값: {current_subscription}")
+
+                # 구독이 유효한지 명시적으로 확인
+                if expected_subscription != current_subscription:
+                    print("오류: 구독이 만료되었습니다")
+                    print("이 파일은 유효한 구독이 필요하므로 복호화할 수 없습니다")
+                    return False
+
+            # 키 유효성 검사
+            validity = self.cpabe.check_key_validity(device_key)
+            print(f"키 유효성 검사 결과: {validity}")
+
+            # 만료된 속성이 있고 그 중에 구독 속성이 있으면 실패 처리
+            if (
+                "subscription" in validity.get("expired_attrs", [])
+                and subscription_required
+            ):
+                print("오류: 구독 속성이 만료되었습니다")
                 return False
 
-            if not validity["valid"]:
-                print(
-                    f"오류: 키가 만료되었습니다. 만료된 속성: {validity['expired_attrs']}"
-                )
+            # 키가 유효하지 않고 구독이 필요한 경우 실패 처리
+            if not validity["valid"] and subscription_required:
+                print("키가 만료되었으며 이 파일은 유효한 구독이 필요합니다.")
                 return False
 
-            # 3. CP-ABE로 AES 키 복호화
+            # CP-ABE로 AES 키 복호화
             try:
                 # 직렬화된 CP-ABE 암호문을 직접 복호화
                 decrypted_key_base64 = self.cpabe.decrypt(serialized_key, device_key)
@@ -180,7 +202,7 @@ class CPABEFileEncryption:
                 print("정책 조건을 충족하지 않거나 키가 만료되었습니다.")
                 return False
 
-            # 4. AES로 파일 복호화
+            # AES로 파일 복호화
             iv = encrypted_file_data[: self.aes_block_size]
             cipher = AES.new(aes_key, AES.MODE_CBC, iv)
             decrypted_padded = cipher.decrypt(
@@ -190,7 +212,7 @@ class CPABEFileEncryption:
             # 패딩 제거
             decrypted_data = unpad(decrypted_padded, self.aes_block_size)
 
-            # 5. 복호화된 파일 저장
+            # 복호화된 파일 저장
             with open(output_file, "wb") as f:
                 f.write(decrypted_data)
 
@@ -225,14 +247,16 @@ def demo_file_encryption():
     # 암호화 시스템 초기화
     encryptor = CPABEFileEncryption()
 
-    # 구독 속성 페이딩 함수 설정 (테스트를 위해 짧게 5초로 설정)
-    encryptor.setup_fading_functions(subscription_lifetime=5)
+    # 구독 속성 페이딩 함수 설정 (테스트를 위해 짧게 3초로 설정)
+    print("구독 속성 페이딩 함수 설정: 3초 후 만료되도록 설정")
+    encryptor.setup_fading_functions(subscription_lifetime=3)
 
-    # 기기 등록 (K5 차량)
+    # 기기 등록
     device_id = "K5-2023-54321"
     attributes = ["model", "premium"]  # 초기 속성 (구독 속성은 자동 추가)
     device_key = encryptor.register_device(device_id, attributes)
     print(f"기기 등록 완료: {device_id}")
+    print(f"키의 동적 속성: {device_key.get('dynamic_attributes', {})}")
 
     # 테스트 파일 생성
     test_file = "test_message.txt"
@@ -261,9 +285,9 @@ def demo_file_encryption():
     encryptor.decrypt_file(premium_encrypted, premium_decrypted, device_key)
 
     # 구독 만료 대기
-    print("\n[2단계] 구독 만료 대기 (7초):")
+    print("\n[2단계] 구독 만료 대기 (4초):")
     print("잠시 기다리는 중...")
-    time.sleep(7)
+    time.sleep(4)  # 4초 대기 (3초 만료 + 1초 여유)
 
     # 만료 후 복호화 테스트
     print("\n[3단계] 구독 만료 후 복호화 테스트:")
@@ -306,5 +330,36 @@ def demo_file_encryption():
         print(f"갱신 실패: {renewal_result['reason']}")
 
 
+def test_fading_function():
+    """
+    페이딩 함수가 시간에 따라 값이 변하는지 테스트
+    """
+    print("\n===== 페이딩 함수 시간 경과 테스트 =====")
+
+    # LinearFadingFunction 생성
+    from cp_abe.fading_functions import LinearFadingFunction
+
+    # 매우 짧은 시간(3초)으로 설정
+    fading = LinearFadingFunction("test", 3)
+
+    # 초기값 확인
+    start_time = time.time()
+    initial_value = fading.compute_current_value()
+    print(f"초기값 (0초): {initial_value}")
+
+    # 시간 경과에 따른 값 변화 확인
+    for i in range(1, 5):
+        time.sleep(1)
+        current_time = time.time()
+        elapsed = current_time - start_time
+        value = fading.compute_current_value(current_time)
+        print(f"경과 시간: {elapsed:.1f}초, 값: {value}")
+
+        # 유효성 확인
+        is_valid = fading.is_valid(initial_value, current_time)
+        print(f"초기값 여전히 유효함? {is_valid}")
+
+
 if __name__ == "__main__":
     demo_file_encryption()
+    # test_fading_function()  # 페이딩 함수 테스트 실행

@@ -105,7 +105,7 @@ class HardExpiryFadingFunction(FadingFunction):
     Hard Expiry 페이딩 함수 - 특정 시간이 지나면 무조건 만료됨
     """
 
-    def __init__(self, attribute_base_value, lifetime_seconds, max_renewals=1):
+    def __init__(self, attribute_base_value, lifetime_seconds, max_renewals=None):
         super().__init__(attribute_base_value, lifetime_seconds)
         self.max_renewals = max_renewals  # 최대 갱신 횟수
 
@@ -113,12 +113,24 @@ class HardExpiryFadingFunction(FadingFunction):
         if current_time is None:
             current_time = time.time()
 
+        # 경과 시간 계산
         time_diff = current_time - self.base_time
+
+        # 간격 계산
         interval = math.floor(time_diff / self.lifetime_seconds)
 
-        # 최대 갱신 횟수를 초과하면 특별한 "만료됨" 값 반환
-        if interval > self.max_renewals:
+        # 최대 갱신 횟수 초과 체크
+        if self.max_renewals is not None and interval > self.max_renewals:
             return f"{self.attribute_base_value}_expired"
 
-        # 정상적인 간격 값 반환
         return f"{self.attribute_base_value}_{interval}"
+
+    def is_valid(self, attribute_value, current_time=None):
+        """
+        Hard expiry - 정확히 같은 값이어야만 유효
+        """
+        current_value = self.compute_current_value(current_time)
+        # expired 값은 항상 유효하지 않음
+        if current_value.endswith("_expired") or attribute_value.endswith("_expired"):
+            return False
+        return attribute_value == current_value
