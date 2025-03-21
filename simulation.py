@@ -182,6 +182,77 @@ def test_large_scale():
                     print(f"  업데이트 복호화 실패 (정책 불일치): {str(e)}")
 
 
+def test_real_time_expiry():
+    """
+    실시간 만료 테스트 - 10초 만료 시뮬레이션
+    """
+    import time
+
+    print("\n=== 실시간 만료 테스트 (10초) ===")
+
+    # CP-ABE 시스템 초기화
+    cpabe = FadingCPABE()
+    cpabe.setup()
+
+    # 현재 시간 + 10초 만료
+    now = datetime.now()
+    expiry_date = (now + timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # 시간 형식 수정 (시분초 포함)
+    expiry_timestamp = int((now + timedelta(seconds=10)).timestamp())
+
+    print(f"현재 시간: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"만료 시간: {expiry_date} (10초 후)")
+
+    # 테스트 IoT 장치 속성 - 간소화
+    device_attributes = ["model", "serialNumber", "region"]
+
+    # 만료 시간을 초 단위로 설정하기 위해 직접 타임스탬프 사용
+    expiry_attrs = {"subscription": expiry_timestamp}
+
+    # 키 생성 (직접 타임스탬프 입력)
+    key = cpabe.keygen_with_expiry(device_attributes, {"subscription": expiry_date})
+
+    # 직접 만료 시간 설정 (더 정확한 제어를 위해)
+    if "expiry_info" in key:
+        key["expiry_info"]["subscription"] = expiry_timestamp
+
+    # 업데이트 패키지 암호화
+    update_data = "10초 구독 테스트용 업데이트 패키지"
+    policy = "model and subscription"
+    ct = cpabe.encrypt(update_data, policy)
+
+    # 실시간 키 상태 확인
+    print("\n실시간 키 상태 모니터링 시작 (12초 동안):")
+    start_time = time.time()
+
+    while time.time() - start_time < 12:  # 12초 동안 모니터링
+        elapsed = time.time() - start_time
+        remaining = max(0, 10 - elapsed)
+
+        validity = cpabe.check_key_validity(key)
+        status = "유효함" if validity["valid"] else "만료됨"
+
+        print(
+            f"경과 시간: {elapsed:.1f}초, 남은 시간: {remaining:.1f}초, 키 상태: {status}"
+        )
+
+        # 복호화 시도
+        if validity["valid"]:
+            decrypted = cpabe.decrypt(ct, key)
+            print(f"  복호화 성공: {decrypted}")
+        else:
+            print("  복호화 실패: 키가 만료되었습니다")
+
+        time.sleep(1)  # 1초마다 확인
+
+    # 최종 상태 확인
+    validity = cpabe.check_key_validity(key)
+    print(f"\n테스트 완료: 키 유효함 = {validity['valid']}")
+    print(f"만료된 속성: {validity['expired_attrs']}")
+
+
 if __name__ == "__main__":
-    simulate_time_passing()
-    test_large_scale()
+    # simulate_time_passing()
+    # test_large_scale()
+    test_real_time_expiry()  # 실시간 만료 테스트 실행

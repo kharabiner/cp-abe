@@ -16,8 +16,25 @@ class FadingCPABE(IoTCPABE):
         # 만료 속성 추가 (속성에 만료일 포함)
         # 속성 이름에 콜론(:)을 사용하지 않도록 수정
         for attr, expiry in expiry_attributes.items():
-            # 만료일을 timestamp로 변환
-            expiry_timestamp = int(datetime.strptime(expiry, "%Y-%m-%d").timestamp())
+            # 타임스탬프로 직접 주어진 경우
+            if isinstance(expiry, int):
+                expiry_timestamp = expiry
+            else:
+                # 만료일을 timestamp로 변환 - 여러 형식 지원
+                try:
+                    # 시분초 포함 형식 시도
+                    expiry_timestamp = int(
+                        datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S").timestamp()
+                    )
+                except ValueError:
+                    try:
+                        # 날짜만 있는 형식 시도
+                        expiry_timestamp = int(
+                            datetime.strptime(expiry, "%Y-%m-%d").timestamp()
+                        )
+                    except ValueError:
+                        raise ValueError(f"지원되지 않는 날짜 형식: {expiry}")
+
             # 속성 형식 단순화
             all_attributes.append(f"{attr}")  # 만료 속성 이름만 추가
 
@@ -32,10 +49,24 @@ class FadingCPABE(IoTCPABE):
         if isinstance(key, dict):
             key["orig_attributes"] = all_attributes
             # 만료 정보 추가 저장
-            key["expiry_info"] = {
-                attr: int(datetime.strptime(expiry, "%Y-%m-%d").timestamp())
-                for attr, expiry in expiry_attributes.items()
-            }
+            key["expiry_info"] = {}
+            for attr, expiry in expiry_attributes.items():
+                if isinstance(expiry, int):
+                    key["expiry_info"][attr] = expiry
+                else:
+                    try:
+                        # 시분초 포함 형식 시도
+                        key["expiry_info"][attr] = int(
+                            datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S").timestamp()
+                        )
+                    except ValueError:
+                        try:
+                            # 날짜만 있는 형식 시도
+                            key["expiry_info"][attr] = int(
+                                datetime.strptime(expiry, "%Y-%m-%d").timestamp()
+                            )
+                        except ValueError:
+                            raise ValueError(f"지원되지 않는 날짜 형식: {expiry}")
 
         return key
 
