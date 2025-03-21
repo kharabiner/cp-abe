@@ -1,10 +1,11 @@
 from cp_abe.iot_cpabe import IoTCPABE
+from cp_abe.fading_function import FadingCPABE  # FadingCPABE 임포트
 from cp_abe.fading_functions import (
     FadingFunction,
     LinearFadingFunction,
     LocationFadingFunction,
 )
-from charm.toolbox.pairinggroup import ZR  # ZR 추가
+from charm.toolbox.pairinggroup import ZR
 from datetime import datetime
 import time
 import uuid
@@ -12,7 +13,7 @@ import json
 import os
 
 
-class DynamicCPABE(IoTCPABE):
+class DynamicCPABE(FadingCPABE):  # IoTCPABE 대신 FadingCPABE 상속
     """
     논문의 Dynamic Attribute Based Encryption(DABE) 구현
     - 각 속성이 독립적인 페이딩 함수를 가짐
