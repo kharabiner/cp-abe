@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  cp-abe:
+    build: .
+    volumes:
+      - ./:/app
+    command: python main.py
+    environment:
+      - PYTHONPATH=/app
+    # 디버깅을 위한 TTY 및 표준 입력 활성화
+    tty: true
+    stdin_open: true
