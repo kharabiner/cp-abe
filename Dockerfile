@@ -15,7 +15,8 @@ RUN apt-get update && \
     python3-setuptools \
     libssl-dev \
     wget \
-    && rm -rf /var/lib/apt/lists/*
+    fonts-nanum \
+    && rm -rf /var/lib/apt/lists/*  # 한글 폰트 추가
 
 # PBC 라이브러리 설치 (charm-crypto의 의존성)
 # 직접 tar.gz 파일 다운로드로 변경

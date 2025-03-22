@@ -54,20 +54,45 @@ class IoTCPABE:
             print(f"단순화된 정책: {simplified_policy}")
 
             # 암호화 실행
-            ct = self.cpabe.encrypt(self.pk, gt_msg, simplified_policy)
+            try:
+                ct = self.cpabe.encrypt(self.pk, gt_msg, simplified_policy)
 
-            # 원본 메시지를 메타데이터로 추가
-            if isinstance(msg, str):
-                ct["original_message"] = msg
+                # 원본 메시지를 메타데이터로 추가
+                if isinstance(msg, str) and ct is not None:
+                    ct["original_message"] = msg
 
-            return ct
+                return ct
+            except ValueError as e:
+                if "invalid literal for int() with base" in str(e):
+                    # 숫자 변환 오류 처리
+                    print(
+                        f"정책 파싱 오류: 속성 이름에 숫자가 아닌 문자가 포함되어 있습니다."
+                    )
+                    # 속성 이름에서 숫자가 아닌 부분을 제거하여 다시 시도
+                    fixed_policy = self._fix_numeric_attributes(simplified_policy)
+                    print(f"수정된 정책: {fixed_policy}")
+                    ct = self.cpabe.encrypt(self.pk, gt_msg, fixed_policy)
+
+                    # 원본 메시지를 메타데이터로 추가
+                    if isinstance(msg, str) and ct is not None:
+                        ct["original_message"] = msg
+
+                    return ct
+                else:
+                    raise
 
         except Exception as e:
             print(f"암호화 오류: {str(e)}")
             import traceback
 
             traceback.print_exc()
-            return None
+            # 암호화 실패 시 메시지를 그대로 반환하지 않고 오류 표시 객체 반환
+            return {
+                "error": True,
+                "message": str(e),
+                "original_message": msg if isinstance(msg, str) else None,
+                "is_encryption_failure": True,
+            }
 
     def decrypt(self, ct, key):
         """
@@ -106,7 +131,23 @@ class IoTCPABE:
         simplified = re.sub(r"subscription_\d+", "subscription", simplified)
 
         # 모든 특수문자 제거하여 정책 단순화 (필요한 경우)
-        for char in [":", "*", "1"]:
+        for char in [":", "*"]:  # "1" 제거는 model_A 같은 속성에 문제를 일으킬 수 있음
             simplified = simplified.replace(char, "")
 
         return simplified
+
+    def _fix_numeric_attributes(self, policy):
+        """속성 이름에서 숫자가 아닌 부분을 처리"""
+        import re
+
+        # 정책 내 속성 이름 패턴 찾기 (공백, 괄호, AND/OR 연산자 등으로 분리됨)
+        pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
+
+        def replace_attr(match):
+            attr = match.group(1)
+            # 속성 이름이 숫자로만 되어있지 않으면 이름 자체를 사용
+            return attr
+
+        # 정책 내 속성 이름 교체
+        fixed_policy = re.sub(pattern, replace_attr, policy)
+        return fixed_policy
