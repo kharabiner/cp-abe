@@ -78,9 +78,8 @@ cp-abe/
 │   └── key_authority.py    # 키 관리 기관 구현
 ├── test/
 │   ├── stage1_basic_encryption.py  # 기본 CP-ABE 설정 및 암호화/복호화
-│   ├── stage2_dynamic_attributes.py  # 동적 속성 테스트
-│   ├── stage3_key_authority.py  # 키 인증 기관 테스트
-│   ├── stage4_real_world_scenarios.py  # 실제 응용 시나리오
-│   ├── update_approach_comparison.py  # 실험 및 성능 평가
-└── main.py                 # 기본 실행 스크립트
+    ├── stage2_dynamic_attributes.py  # 동적 속성 테스트
+    ├── stage3_key_authority.py  # 키 인증 기관 테스트
+    ├── stage4_real_world_scenarios.py  # 실제 응용 시나리오
+    └── update_approach_comparison.py  # 실험 및 성능 평가
 ```
