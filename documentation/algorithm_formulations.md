@@ -80,10 +80,3 @@
 - <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}t_{base}" alt="t_base">: 기준 시간
 - lifetime: 속성 수명
 
-## IX. 접근 취소 (RevokeAccess)
-
-**기존 방식:**
-<img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}RevokeAccess_{trad}(device\_id)%20\rightarrow%20\{new\_keys_i\}_{i%20\neq%20device\_id}%20and%20\{re-encrypted\_updates\}" alt="RevokeAccess_trad">
-
-**CP-ABE 방식:**
-<img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}RevokeAccess_{cpabe}(device\_id)%20\rightarrow%20BlackList%20\cup%20\{device\_id\}" alt="RevokeAccess_cpabe">
