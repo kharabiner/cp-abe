@@ -66,7 +66,6 @@ docker-compose run cp-abe python test/update_approach_comparison.py
 cp-abe/
 ├── cp_abe/                 # 핵심 CP-ABE 구현
 │   ├── iot_cpabe.py        # 기본 CP-ABE 구현
-│   ├── fading_function.py  # 페이딩 함수 기본 클래스
 │   ├── fading_functions.py # 다양한 페이딩 함수 구현
 │   ├── dynamic_cpabe.py    # 동적 속성 CP-ABE 구현
 │   └── key_authority.py    # 키 관리 기관 구현
