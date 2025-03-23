@@ -139,31 +139,38 @@ def decrypt(self, ciphertext, key):
 1. **기기 등록**: 새 기기에 초기 키 발급
 2. **갱신 정책 관리**: 각 속성의 갱신 정책 설정 
 3. **갱신 요청 처리**: 기기의 속성 갱신 요청 승인/거부
-4. **접근 취소**: 부정 사용 기기의 접근 권한 취소
-5. **기기 상태 관리**: 활성/비활성/취소 상태 추적
+4. **접근 제한**: 시간 기반 속성을 통한 자동 접근 제한
+5. **기기 상태 관리**: 활성/비활성 상태 추적
 
-### 예시: 기기 등록 과정
+## 6. 실험 결과 및 성능 평가
 
-```python
-def register_device(self, device_id, initial_attributes, subscription_period_days=30):
-    # 사용자 ID 생성
-    user_id = self.cpabe.create_user_record(device_id)
-    
-    # 모든 속성 준비 (초기 속성 + 구독)
-    complete_attributes = list(initial_attributes)
-    if "subscription" not in complete_attributes:
-        complete_attributes.append("subscription")
-        
-    # 키 생성
-    key = self.cpabe.keygen_with_dynamic_attributes(user_id, complete_attributes)
-    
-    # 기기 정보 저장
-    self.device_registry[device_id] = {
-        "registration_date": datetime.now().isoformat(),
-        "subscription_end": (datetime.now() + timedelta(days=subscription_period_days)).strftime("%Y-%m-%d"),
-        "attributes": initial_attributes,
-        "status": "active",
-    }
-    
-    return key
-```
+### 6.1 확장성 실험
+
+![확장성 실험](../experiment_results/scaling_comparison.png)
+
+* **CP-ABE 암호화 시간**: 기기 수에 관계없이 거의 일정 (~0.008초)
+* **기존 방식 암호화 시간**: 기기 수에 비례하여 선형 증가
+* **교차점**: 약 577개 기기에서 CP-ABE가 더 효율적으로 전환
+
+### 6.2 접근 제한 효율성
+
+![접근 제한 효율성](../experiment_results/access_limitation_comparison.png)
+
+* **CP-ABE**: 시간 기반 접근 제한, 기기 수에 관계없이 일정한 처리 시간 (~0.00002초)
+* **기존 방식**: 다른 모든 기기에 키 재발급 필요, 기기 수에 비례하여 시간 증가
+
+### 6.3 구독 갱신 효율성
+
+![구독 갱신 효율성](../experiment_results/renewal_comparison.png)
+
+* **부분 키 갱신**: 속성 수에 관계없이 일정한 처리 시간 (~0.0025초)
+* **전체 키 재발급**: 속성 수 증가에 따라 처리 시간 증가 (14개 속성에서 ~0.025초)
+* **데이터 크기 절약**: 부분 갱신이 전체 갱신 대비 약 36% 크기 절약
+
+### 6.4 대역폭 사용량
+
+![대역폭 사용량](../experiment_results/bandwidth_comparison.png)
+
+* **CP-ABE**: 모든 기기에 동일한 암호문 전송 (기기 수와 무관하게 360바이트)
+* **기존 방식**: 기기 수에 비례하여 대역폭 사용량 증가
+* **절약률**: 100대 이상 환경에서 99.9% 이상의 대역폭 절약

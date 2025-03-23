@@ -2,8 +2,8 @@
 3단계 테스트: 키 인증 기관 테스트
 - 기기 등록 및 키 발급
 - 구독 및 보증 갱신 정책 설정
-- 기기 접근 취소
-- 갱신 제한 및 블랙리스트 테스트
+- 기기 비활성화
+- 갱신 제한 및 허용 기기 테스트
 """
 
 import os
@@ -48,7 +48,6 @@ def main():
         "subscription",
         max_renewals=None,  # 무제한 갱신
         renewal_period_days=30,  # 30일 갱신
-        blacklisted_devices=["blacklisted-device-001"],  # 차단된 기기
     )
     print("구독 속성 갱신 정책 설정: 무제한 갱신, 30일 기간")
 
@@ -57,13 +56,12 @@ def main():
         "warranty",
         max_renewals=1,  # 최대 1회 갱신
         renewal_period_days=365,  # 1년 갱신
-        blacklisted_devices=["blacklisted-device-001"],  # 차단된 기기
     )
     print("보증 속성 갱신 정책 설정: 최대 1회 갱신, 1년 기간")
 
     # 3. 기기 등록 및 초기 키 발급
     print("\n[3] 기기 등록 및 초기 키 발급")
-    device_ids = ["device-001", "device-002", "blacklisted-device-001"]
+    device_ids = ["device-001", "device-002", "inactive-device-001"]
     device_keys = {}
 
     for device_id in device_ids:
@@ -83,7 +81,6 @@ def main():
         print(f"\n기기 {device_id} 정보:")
         print(f"  등록일: {device_info['registration_date']}")
         print(f"  구독 만료일: {device_info['subscription_end']}")
-        print(f"  속성: {device_info['attributes']}")
         print(f"  상태: {device_info['status']}")
 
     # 5. 암호화된 업데이트 준비
@@ -134,43 +131,31 @@ def main():
     else:
         print(f"  갱신 실패: {renewal_result.get('reason', '알 수 없는 이유')}")
 
-    # 블랙리스트 기기 갱신 테스트
-    blacklisted_device_id = "blacklisted-device-001"
-    print(f"\n블랙리스트 기기 {blacklisted_device_id} 구독 갱신:")
-    renewal_result = authority.request_attribute_renewal(
-        blacklisted_device_id, "subscription"
+    # 비활성화할 기기 준비
+    inactive_device_id = "device-002"
+
+    # 8. 기기 비활성화 테스트
+    print("\n[8] 기기 비활성화 테스트")
+    print(f"기기 {inactive_device_id} 비활성화 중...")
+
+    inactivation_success = authority.set_device_inactive(
+        inactive_device_id, reason="payment_failure"
     )
+    if inactivation_success:
+        print(f"기기 {inactive_device_id} 비활성화 성공")
 
-    if renewal_result["success"]:
-        print(
-            f"  갱신 성공: 새 만료일 {renewal_result.get('expiry_date', '알 수 없음')}"
-        )
-    else:
-        print(f"  갱신 실패: {renewal_result.get('reason', '알 수 없는 이유')}")
-
-    # 8. 기기 취소 테스트
-    print("\n[8] 기기 취소 테스트")
-    device_to_revoke = "device-002"
-    print(f"기기 {device_to_revoke} 취소 중...")
-
-    revocation_success = authority.revoke_device(
-        device_to_revoke, reason="subscription_fraud"
-    )
-    if revocation_success:
-        print(f"기기 {device_to_revoke} 취소 성공")
-
-        # 취소된 기기 정보 확인
-        device_info = authority.get_device_info(device_to_revoke)
+        # 비활성화된 기기 정보 확인
+        device_info = authority.get_device_info(inactive_device_id)
         print(f"  상태: {device_info['status']}")
-        print(f"  취소 사유: {device_info.get('revocation_reason', '알 수 없음')}")
-        print(f"  취소일: {device_info.get('revocation_date', '알 수 없음')}")
+        print(f"  비활성화 사유: {device_info.get('inactive_reason', '알 수 없음')}")
+        print(f"  비활성화 일시: {device_info.get('inactive_date', '알 수 없음')}")
     else:
-        print(f"기기 {device_to_revoke} 취소 실패")
+        print(f"기기 {inactive_device_id} 비활성화 실패")
 
-    # 9. 취소된 기기 갱신 테스트
-    print(f"\n취소된 기기 {device_to_revoke} 구독 갱신 시도:")
+    # 9. 비활성화된 기기 갱신 테스트
+    print(f"\n비활성화된 기기 {inactive_device_id} 구독 갱신 시도:")
     renewal_result = authority.request_attribute_renewal(
-        device_to_revoke, "subscription"
+        inactive_device_id, "subscription"
     )
 
     if renewal_result["success"]:
@@ -180,19 +165,27 @@ def main():
 
     # 10. 갱신 후 복호화 테스트
     print("\n[10] 갱신 후 복호화 테스트")
+    print("\n시간 경과 시뮬레이션 (6초 대기)")
+    time.sleep(6)  # 구독 속성 만료 대기
+
     for device_id, key in device_keys.items():
         print(f"\n기기 {device_id} 복호화 테스트:")
         try:
             validity = cpabe.check_key_validity(key)
-            if validity["valid"]:
-                decrypted = cpabe.decrypt(encrypted_update, key)
-                print(f"  성공: {decrypted}")
+            print(f"  키 유효성: {validity['valid']}")
+            print(f"  유효 속성: {validity['valid_attrs']}")
+            print(f"  만료된 속성: {validity['expired_attrs']}")
+
+            if "subscription" in validity["expired_attrs"]:
+                print("  구독이 만료되어 복호화 실패 (정상)")
             else:
-                print(
-                    f"  실패: 키가 유효하지 않음 (만료된 속성: {validity['expired_attrs']})"
-                )
+                try:
+                    decrypted = cpabe.decrypt(encrypted_update, key)
+                    print(f"  성공: {decrypted}")
+                except Exception as e:
+                    print(f"  실패: {str(e)}")
         except Exception as e:
-            print(f"  실패: {str(e)}")
+            print(f"  키 유효성 검사 실패: {str(e)}")
 
     # 11. 보증 속성 갱신 제한 테스트
     print("\n[11] 보증 속성 갱신 제한 테스트")

@@ -278,24 +278,24 @@ def run_scaling_experiment(device_counts):
     return results
 
 
-def run_revocation_experiment(device_counts):
-    """접근 취소 효율성 비교 실험"""
+def run_access_limitation_experiment(device_counts):
+    """접근 제한 효율성 비교 실험 - 취소 대신 시간 제한으로 대체"""
     print(
-        "\n=== Access Revocation Experiment: Efficiency Comparison by Number of Devices ==="
+        "\n=== Access Limitation Experiment: Time-Based vs. Re-encryption Approach ==="
     )
 
     # 결과 저장용 딕셔너리
     results = {
         "device_counts": device_counts,
-        "cpabe_revoke_time": [],
-        "trad_revoke_time": [],
-        "trad_rekey_time": [],
+        "cpabe_limit_time": [],  # CP-ABE: 기기 비활성화 시간 (시간 제한 속성)
+        "trad_blacklist_time": [],  # 기존 방식: 블랙리스트 추가 시간
+        "trad_rekey_time": [],  # 기존 방식: 키 재발급 시간
     }
 
     for device_count in device_counts:
         print(f"\nNumber of devices: {device_count}")
 
-        # === CP-ABE 접근 취소 ===
+        # === CP-ABE 접근 제한 - 시간 제한 속성 ===
         # 시스템 초기화
         cpabe = DynamicCPABE()
         cpabe.setup()
@@ -311,15 +311,15 @@ def run_revocation_experiment(device_counts):
             device_id = f"device_{i}"
             authority.register_device(device_id, ["model", "serialNumber"], 30)
 
-        # 첫 번째 기기 접근 취소 시간 측정
-        device_to_revoke = "device_0"
+        # 첫 번째 기기 비활성화 시간 측정
+        device_to_limit = "device_0"
         start_time = time.time()
-        authority.revoke_device(device_to_revoke)
-        revoke_time = time.time() - start_time
-        results["cpabe_revoke_time"].append(revoke_time)
-        print(f"CP-ABE revocation time: {revoke_time:.6f}s")
+        authority.set_device_inactive(device_to_limit)
+        limit_time = time.time() - start_time
+        results["cpabe_limit_time"].append(limit_time)
+        print(f"CP-ABE device deactivation time: {limit_time:.6f}s")
 
-        # === 기존 방식 접근 취소 ===
+        # === 기존 방식 접근 제한 ===
         trad = TraditionalApproach()
         trad.setup()
 
@@ -329,14 +329,14 @@ def run_revocation_experiment(device_counts):
             trad.generate_key(device_id)
 
         # 첫 번째 기기 블랙리스트 추가 시간
-        device_to_revoke = "device_0"
+        device_to_limit = "device_0"
         start_time = time.time()
-        trad.revoke_access(device_to_revoke)
-        revoke_time = time.time() - start_time
-        results["trad_revoke_time"].append(revoke_time)
-        print(f"Traditional approach blacklist addition time: {revoke_time:.6f}s")
+        trad.revoke_access(device_to_limit)
+        blacklist_time = time.time() - start_time
+        results["trad_blacklist_time"].append(blacklist_time)
+        print(f"Traditional approach blacklist addition time: {blacklist_time:.6f}s")
 
-        # 다른 모든 기기의 키 재발급 시간
+        # 다른 모든 기기의 키 재발급 시간 (기존 방식의 추가 오버헤드)
         start_time = time.time()
         trad.refresh_keys()
         rekey_time = time.time() - start_time
@@ -345,42 +345,42 @@ def run_revocation_experiment(device_counts):
 
     # 그래프 저장 - 절대 경로 사용
     output_dir = os.path.join(parent_dir, "experiment_results")
-    output_path = os.path.join(output_dir, "revocation_comparison.png")
+    output_path = os.path.join(output_dir, "access_limitation_comparison.png")
 
     plt.figure(figsize=(12, 6))
 
-    # 접근 취소 시간 그래프
+    # 접근 제한 시간 그래프
     plt.subplot(1, 2, 1)
-    plt.plot(device_counts, results["cpabe_revoke_time"], "o-", label="CP-ABE")
+    plt.plot(
+        device_counts, results["cpabe_limit_time"], "o-", label="CP-ABE (Time-Based)"
+    )
     plt.plot(
         device_counts,
-        results["trad_revoke_time"],
+        results["trad_blacklist_time"],
         "s-",
-        label=LABELS["기존 방식(블랙리스트)"],
+        label="Traditional (Blacklist)",
     )
-    plt.xlabel(LABELS["기기 수"])
-    plt.ylabel(LABELS["접근 취소 시간 (초)"])
-    plt.title(LABELS["기기 수에 따른 접근 취소 시간"])
+    plt.xlabel("Number of Devices")
+    plt.ylabel("Access Limitation Time (s)")
+    plt.title("Access Limitation Time vs. Number of Devices")
     plt.legend()
     plt.grid(True)
 
     # 전체 시간 (재발급 포함) 그래프
     plt.subplot(1, 2, 2)
-    plt.plot(
-        device_counts, results["cpabe_revoke_time"], "o-", label=LABELS["CP-ABE (전체)"]
-    )
+    plt.plot(device_counts, results["cpabe_limit_time"], "o-", label="CP-ABE (Total)")
     plt.plot(
         device_counts,
         [
             a + b
-            for a, b in zip(results["trad_revoke_time"], results["trad_rekey_time"])
+            for a, b in zip(results["trad_blacklist_time"], results["trad_rekey_time"])
         ],
         "s-",
-        label=LABELS["기존 방식 (블랙리스트+키재발급)"],
+        label="Traditional (Blacklist + Rekey)",
     )
-    plt.xlabel(LABELS["기기 수"])
-    plt.ylabel(LABELS["총 접근 취소 처리 시간 (초)"])
-    plt.title(LABELS["기기 수에 따른 총 접근 취소 처리 시간"])
+    plt.xlabel("Number of Devices")
+    plt.ylabel("Total Processing Time (s)")
+    plt.title("Total Processing Time vs. Number of Devices")
     plt.legend()
     plt.grid(True)
 
@@ -749,8 +749,8 @@ def main():
     device_counts = [1, 10, 50, 100, 500, 1000]
     scaling_results = run_scaling_experiment(device_counts)
 
-    # 2. 접근 취소 실험
-    revocation_results = run_revocation_experiment(device_counts)
+    # 2. 접근 제한 실험 - 취소 대신 시간 제한으로 대체
+    access_limitation_results = run_access_limitation_experiment(device_counts)
 
     # 3. 구독 갱신 실험
     renewal_results = run_renewal_experiment()
@@ -767,7 +767,7 @@ def main():
         f"1. Efficiency crossover: CP-ABE becomes more efficient than traditional approach at ~{crossover} devices"
     )
     print(
-        f"2. Access revocation: CP-ABE has constant processing time regardless of number of devices"
+        f"2. Access limitation: CP-ABE uses time-based attributes instead of manual revocation"
     )
     print(
         f"3. Subscription renewal: Partial key update more efficient as attribute count increases"
