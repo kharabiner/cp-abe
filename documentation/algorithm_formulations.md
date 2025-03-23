@@ -28,8 +28,8 @@
 
 <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}DynamicKeyGen(MSK,%20S_{static},%20S_{dynamic})%20\rightarrow%20SK_{S_{static}%20\cup%20S_{dynamic}(t)}" alt="DynamicKeyGen">
 여기서:
-- <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}S_{static}" alt="S_static">: 정적 속성 집합 (모델, 지역 등)
-- <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}S_{dynamic}" alt="S_dynamic">: 동적 속성 집합 (구독 등)
+- <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}S_{static}" alt="S_static">: 정적 속성 집합 (모델, 일련번호)
+- <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}S_{dynamic}" alt="S_dynamic">: 동적 속성 집합 (구독, 보증)
 - <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}S_{dynamic}(t)" alt="S_dynamic(t)">: 시간 t에서의 동적 속성 값 = <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}\{f_{attr}(t)%20:%20attr%20\in%20S_{dynamic}\}" alt="dynamic attrs">
 
 ## IV. 암호화 (Encrypt)
@@ -69,7 +69,12 @@
 
 ## VIII. 페이딩 함수 (Fading Function)
 
-<img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}f_{attr}(t)%20=%20attr%20\|%20\lfloor%20(t%20-%20t_{base})%20/%20lifetime%20\rfloor" alt="fading function">
+구독 속성을 위한 페이딩 함수:
+<img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}f_{subscription}(t)%20=%20subscription%20\|%20\lfloor%20(t%20-%20t_{base})%20/%20lifetime%20\rfloor" alt="subscription fading function">
+
+보증 속성을 위한 페이딩 함수:
+<img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}f_{warranty}(t)%20=%20warranty%20\|%20\lfloor%20(t%20-%20t_{base})%20/%20lifetime%20\rfloor" alt="warranty fading function">
+
 여기서:
 - t: 현재 시간
 - <img src="https://latex.codecogs.com/png.image?\dpi{110}\bg{white}t_{base}" alt="t_base">: 기준 시간

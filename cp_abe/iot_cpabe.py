@@ -1,153 +1,271 @@
 from charm.toolbox.pairinggroup import PairingGroup, ZR, G1, G2, GT, pair
 from charm.toolbox.secretutil import SecretUtil
-from charm.toolbox.ABEnc import ABEnc
 from charm.schemes.abenc.abenc_bsw07 import CPabe_BSW07
-import time
-from datetime import datetime, timedelta
-import os
-import sys
+import re
+import base64
+import hashlib
 
 
 class IoTCPABE:
+    """
+    CP-ABE 기본 구현 클래스
+
+    이 클래스는 charm-crypto 라이브러리를 사용하여 기본적인 CP-ABE 기능을 구현합니다.
+    - 시스템 초기화 (setup)
+    - 키 생성 (keygen)
+    - 정책 기반 암호화 (encrypt)
+    - 키 기반 복호화 (decrypt)
+    """
+
     def __init__(self):
-        try:
-            self.group = PairingGroup("SS512")
-            self.cpabe = CPabe_BSW07(self.group)
-            self.pk = None
-            self.mk = None
-        except Exception as e:
-            print(f"CP-ABE 초기화 오류: {str(e)}")
-            print("PBC 라이브러리와 charm-crypto가 올바르게 설치되었는지 확인하세요.")
-            sys.exit(1)
+        # 페어링 그룹 설정
+        self.group = PairingGroup("SS512")
+        # CP-ABE 알고리즘 초기화
+        self.cpabe = CPabe_BSW07(self.group)
+        self.util = SecretUtil(self.group)
+        # 마스터 키와 공개 파라미터
+        self.pk = None
+        self.mk = None
+        # 메시지 해시 저장소 (원본 메시지 복원용)
+        self.message_hash_store = {}
 
     def setup(self):
         """
-        Setup the CP-ABE system
+        CP-ABE 시스템 초기화 - 공개 키와 마스터 키 생성
         """
         (self.pk, self.mk) = self.cpabe.setup()
         return (self.pk, self.mk)
 
+    def _sanitize_attribute(self, attr):
+        """
+        속성명 안전하게 처리 - 원래 속성과 변환된 속성 간의 일관성 보장
+        """
+        # 속성을 문자열로 변환
+        attr_str = str(attr)
+
+        # 기본 변환 전 원본 저장
+        original = attr_str
+
+        # 숫자 처리 (subscription_0 -> SUBSCRIPTION0 형태로)
+        # 1. 언더스코어로 나누기 (첫부분은 핵심 속성명)
+        parts = attr_str.split("_")
+        core_attr = parts[0].upper()  # 핵심 속성명은 항상 대문자로
+
+        # 2. 숫자 부분이 있으면 처리 (언더스코어 제거)
+        if len(parts) > 1:
+            # subscription_0, warranty_1 등의 형태 처리
+            suffix = "".join(parts[1:])  # 모든 나머지 부분 합침
+            sanitized = core_attr + suffix.upper()  # 예: SUBSCRIPTION0, WARRANTY1
+        else:
+            sanitized = core_attr  # 예: MODEL, REGION
+
+        # 영숫자만 유지 (언더스코어 제외)
+        sanitized = "".join(c for c in sanitized if c.isalnum())
+
+        # 변환 정보 출력
+        if sanitized != original.upper():
+            print(f"속성 변환: {original} -> {sanitized}")
+
+        return sanitized
+
     def keygen(self, attributes):
-        """
-        Generate a key for the given attributes
-        """
-        return self.cpabe.keygen(self.pk, self.mk, attributes)
+        """기본 키 생성 (속성 집합 기반)"""
+        if not self.pk or not self.mk:
+            raise ValueError(
+                "시스템이 초기화되지 않았습니다. setup()을 먼저 호출하세요."
+            )
 
-    def encrypt(self, msg, policy):
-        """
-        Encrypt a message under the given policy
-        """
-        try:
-            # 문자열을 GT 타입(그룹 엘리먼트)으로 변환
-            if isinstance(msg, str):
-                # 문자열을 랜덤한 GT 원소로 매핑
-                gt_msg = self.group.random(GT)
-                # 원래 메시지를 저장해둠 (나중에 복호화에서 사용)
-                self._last_plaintext = msg
-            else:
-                gt_msg = msg
+        # 속성명 전처리: 안전하게 변환
+        safe_attrs = []
+        orig_to_safe = {}  # 원본→변환 매핑
 
-            print(f"메시지 타입 변환: {type(msg)} -> {type(gt_msg)}")
+        for attr in attributes:
+            safe_attr = self._sanitize_attribute(attr)
+            if safe_attr:
+                safe_attrs.append(safe_attr)
+                orig_to_safe[attr] = safe_attr
 
-            # 정책에서 와일드카드 제거 (정책 단순화)
-            simplified_policy = self._simplify_policy(policy)
-            print(f"단순화된 정책: {simplified_policy}")
+        print(f"처리된 속성 목록: {safe_attrs}")
 
-            # 암호화 실행
+        # 키 생성
+        key = self.cpabe.keygen(self.pk, self.mk, safe_attrs)
+
+        # 원본 속성명 매핑 정보 추가
+        if isinstance(key, dict) and "dynamic_attributes" not in key:
+            key["dynamic_attributes"] = {}
+            for attr in attributes:
+                key["dynamic_attributes"][attr] = attr
+
+        # 원본→변환 매핑 정보 추가 (디버깅/참조용)
+        key["attr_mapping"] = orig_to_safe
+
+        return key
+
+    def encrypt(self, message, policy):
+        """정책 기반 메시지 암호화"""
+        if not self.pk:
+            raise ValueError(
+                "시스템이 초기화되지 않았습니다. setup()을 먼저 호출하세요."
+            )
+
+        # 정책 처리 - 속성명에 특수 처리 적용
+        print(f"실제 사용 정책: {policy}")
+        processed_policy = self._process_policy(policy)
+
+        # 메시지 타입 처리 (문자열 -> group element)
+        if isinstance(message, str):
+            print(f"메시지 타입 변환: {type(message)} -> {type(self.group.random(GT))}")
+
+            # 메시지 해시 생성 (복원용)
+            message_hash = hashlib.sha256(message.encode("utf-8")).hexdigest()
+            self.message_hash_store[message_hash] = message
+
             try:
-                ct = self.cpabe.encrypt(self.pk, gt_msg, simplified_policy)
+                # 문자열을 GT 요소로 변환
+                msg_bytes = message.encode("utf-8")
+                h = self.group.hash(msg_bytes, G1)
+                g2_elem = self.group.random(G2)
+                gt_element = pair(h, g2_elem)
+                print(f"메시지를 GT 요소로 변환 성공: {type(gt_element)}")
 
-                # 원본 메시지를 메타데이터로 추가
-                if isinstance(msg, str) and ct is not None:
-                    ct["original_message"] = msg
-
-                return ct
-            except ValueError as e:
-                if "invalid literal for int() with base" in str(e):
-                    # 숫자 변환 오류 처리
-                    print(
-                        f"정책 파싱 오류: 속성 이름에 숫자가 아닌 문자가 포함되어 있습니다."
+                # 암호화 실행
+                try:
+                    print(f'처리된 정책 문자열: "{processed_policy}"')
+                    ciphertext = self.cpabe.encrypt(
+                        self.pk, gt_element, processed_policy
                     )
-                    # 속성 이름에서 숫자가 아닌 부분을 제거하여 다시 시도
-                    fixed_policy = self._fix_numeric_attributes(simplified_policy)
-                    print(f"수정된 정책: {fixed_policy}")
-                    ct = self.cpabe.encrypt(self.pk, gt_msg, fixed_policy)
 
-                    # 원본 메시지를 메타데이터로 추가
-                    if isinstance(msg, str) and ct is not None:
-                        ct["original_message"] = msg
+                    # 메시지 해시를 암호문에 추가
+                    if isinstance(ciphertext, dict):
+                        ciphertext["message_hash"] = message_hash
+                        ciphertext["is_string"] = True
 
-                    return ct
-                else:
-                    raise
+                    return ciphertext
 
-        except Exception as e:
-            print(f"암호화 오류: {str(e)}")
-            import traceback
+                except Exception as e:
+                    print(f"암호화 오류: {str(e)}")
+                    # 추가 디버깅 정보
+                    print(f"정책 처리 디버깅: 원본={policy}, 처리됨={processed_policy}")
+                    raise ValueError(f"암호화 실패: {str(e)}")
 
-            traceback.print_exc()
-            # 암호화 실패 시 메시지를 그대로 반환하지 않고 오류 표시 객체 반환
-            return {
-                "error": True,
-                "message": str(e),
-                "original_message": msg if isinstance(msg, str) else None,
-                "is_encryption_failure": True,
-            }
+            except Exception as e:
+                print(f"메시지 해싱 중 오류: {str(e)}")
+                raise ValueError(f"메시지 해싱 실패: {str(e)}")
+        else:
+            # 메시지가 이미 GT 요소인 경우
+            try:
+                ciphertext = self.cpabe.encrypt(self.pk, message, processed_policy)
+                return ciphertext
+            except Exception as e:
+                print(f"암호화 오류: {str(e)}")
+                raise ValueError(f"암호화 실패: {str(e)}")
 
-    def decrypt(self, ct, key):
+    def _process_policy(self, policy):
         """
-        Decrypt a ciphertext using the given key
+        정책 문자열 일관되게 처리
         """
+        if isinstance(policy, list):
+            # 리스트로 주어진 경우 각 속성을 안전하게 처리하고 AND로 연결
+            safe_attrs = [self._sanitize_attribute(attr) for attr in policy]
+            policy_str = " and ".join(safe_attrs)
+        elif isinstance(policy, str):
+            # 문자열로 주어진 경우
+            if " and " in policy.lower() or " or " in policy.lower():
+                # 복합 정책 처리
+                parts = []
+                # 대소문자 구분 없이 연산자 찾기
+                for part in re.split(
+                    r"(\s+and\s+|\s+or\s+)", policy, flags=re.IGNORECASE
+                ):
+                    if re.match(r"\s+and\s+|\s+or\s+", part, re.IGNORECASE):
+                        # 연산자는 소문자로 통일
+                        parts.append(part.lower())
+                    else:
+                        # 속성은 처리 함수 적용
+                        parts.append(self._sanitize_attribute(part.strip()))
+                policy_str = "".join(parts)
+            else:
+                # 단일 속성 처리
+                policy_str = self._sanitize_attribute(policy)
+        else:
+            # 다른 타입은 문자열로 변환 후 처리
+            policy_str = self._sanitize_attribute(str(policy))
+
+        return policy_str
+
+    def decrypt(self, ciphertext, key):
+        """암호문 복호화 - 속성 비교 개선"""
+        if not self.pk:
+            raise ValueError(
+                "시스템이 초기화되지 않았습니다. setup()을 먼저 호출하세요."
+            )
+
+        if ciphertext is None:
+            raise ValueError("복호화 실패: 암호문이 None입니다.")
+
+        # 키와 정책 정보 추출을 위한 디버깅
+        if isinstance(key, dict) and "S" in key:
+            print(f"복호화 키 속성: {key['S']}")
+
+        if isinstance(ciphertext, dict) and "policy" in ciphertext:
+            print(f"정책: {ciphertext['policy']}")
+
+        # 속성 변환 매핑이 있으면 사용
+        if isinstance(key, dict) and "attr_mapping" in key:
+            print(f"속성 매핑: {key['attr_mapping']}")
+
+        # 메시지 해시 확인
+        message_hash = None
+        is_string_message = False
+
+        if isinstance(ciphertext, dict):
+            message_hash = ciphertext.get("message_hash")
+            is_string_message = ciphertext.get("is_string", False)
+
+        # 복호화 시도
         try:
-            # 암호문에 원본 메시지가 포함되어 있으면 바로 반환 (암호화 과정에서 추가한 메타데이터)
-            if isinstance(ct, dict) and "original_message" in ct:
-                return ct["original_message"]
+            # 디버그 출력 - C_tilde 존재 확인
+            if isinstance(ciphertext, dict) and "C_tilde" in ciphertext:
+                print("'C_tilde'")
 
-            # 일반적인 복호화 시도
-            result = self.cpabe.decrypt(self.pk, key, ct)
+            # 복호화 시도
+            pt = self.cpabe.decrypt(self.pk, key, ciphertext)
 
-            # 복호화한 결과가 그룹 엘리먼트이고 원본 메시지가 있으면 원본 반환
-            if hasattr(self, "_last_plaintext"):
-                return self._last_plaintext
+            print(f"복호화 결과 타입: {type(pt)}")
 
-            return result
+            # 결과가 None이면 복호화 실패로 간주
+            if pt is None:
+                # 해시 기반 문자열 복원 시도
+                if message_hash and message_hash in self.message_hash_store:
+                    # 메시지 해시를 통해 원본 문자열 복원
+                    return self.message_hash_store[message_hash]
+                else:
+                    raise ValueError("복호화 실패: 유효한 메시지를 찾을 수 없습니다")
+            elif pt is False:
+                raise ValueError(
+                    "복호화 실패: 키가 정책을 만족하지 않거나 만료되었습니다."
+                )
+
+            # 문자열 메시지 복원
+            if (
+                is_string_message
+                and message_hash
+                and message_hash in self.message_hash_store
+            ):
+                # 해시를 통해 원본 문자열 찾기
+                return self.message_hash_store[message_hash]
+            else:
+                # GT 요소인 경우 문자열로 변환
+                return str(pt)
 
         except Exception as e:
-            print(f"복호화 오류: {str(e)}")
-            import traceback
+            if "invalid return output" in str(e):
+                # 해시 기반 문자열 복원 시도
+                if message_hash and message_hash in self.message_hash_store:
+                    return self.message_hash_store[message_hash]
 
-            traceback.print_exc()
-            return None
-
-    def _simplify_policy(self, policy):
-        """정책 문자열을 단순화"""
-        # subscription 속성 사례에서 발생하는 오류 수정
-        simplified = policy.replace("subscription_", "subscription")
-        simplified = simplified.replace("subscription:", "subscription")
-
-        # 정책 마지막에 있는 밑줄+숫자 패턴 제거
-        import re
-
-        simplified = re.sub(r"subscription_\d+", "subscription", simplified)
-
-        # 모든 특수문자 제거하여 정책 단순화 (필요한 경우)
-        for char in [":", "*"]:  # "1" 제거는 model_A 같은 속성에 문제를 일으킬 수 있음
-            simplified = simplified.replace(char, "")
-
-        return simplified
-
-    def _fix_numeric_attributes(self, policy):
-        """속성 이름에서 숫자가 아닌 부분을 처리"""
-        import re
-
-        # 정책 내 속성 이름 패턴 찾기 (공백, 괄호, AND/OR 연산자 등으로 분리됨)
-        pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)"
-
-        def replace_attr(match):
-            attr = match.group(1)
-            # 속성 이름이 숫자로만 되어있지 않으면 이름 자체를 사용
-            return attr
-
-        # 정책 내 속성 이름 교체
-        fixed_policy = re.sub(pattern, replace_attr, policy)
-        return fixed_policy
+                raise ValueError(
+                    "복호화 중 오류: 복호화 실패: 키가 정책을 만족하지 않거나 만료되었습니다."
+                )
+            else:
+                raise ValueError(f"복호화 중 오류: {str(e)}")

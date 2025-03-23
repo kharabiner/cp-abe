@@ -2,10 +2,28 @@ services:
   cp-abe:
     build: .
     volumes:
-      - ./:/app
+      - ./:/app:cached
     command: python main.py
     environment:
       - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # 메모리 제한 설정
+      - PYTHONMALLOC=malloc
+      # 추가 디버깅 옵션
+      - PYTHONDEVMODE=1
+      - PYTHONIOENCODING=utf-8
+      # 모듈 로딩 개선
+      - PYTHONHASHSEED=0
+    # IPC 및 공유 메모리 사용 설정
+    ipc: host
     # 디버깅을 위한 TTY 및 표준 입력 활성화
     tty: true
     stdin_open: true
+    # 오래된 컨테이너 자동 제거
+    deploy:
+      restart_policy:
+        condition: none
+      resources:
+        limits:
+          memory: 1G
