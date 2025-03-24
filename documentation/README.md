@@ -7,7 +7,7 @@
 1. [알고리즘 수식 설명](algorithm_formulations.md)
 2. [구현 세부사항](implementation_details.md)
 3. [성능 평가 결과](performance_analysis.md)
-4. [실험 결과 상세 분석 (2023)](experiment_analysis_2023.md)
+4. [실험 결과 상세 분석 (2023)](experiment_analysis_2025.md)
 5. [성능 측정 이슈 및 관찰](performance_analysis_notes.md)
 
 ## 기술 개요
