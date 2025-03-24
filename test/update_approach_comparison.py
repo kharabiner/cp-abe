@@ -154,6 +154,9 @@ def run_scaling_experiment(device_counts):
         "\n=== Scalability Experiment: Performance Comparison by Number of Devices ==="
     )
 
+    # 디버그 모드 여부 확인
+    debug_mode = os.environ.get("CP_ABE_DEBUG") == "1"
+
     # 결과 저장용 딕셔너리
     results = {
         "device_counts": device_counts,
@@ -205,6 +208,7 @@ def run_scaling_experiment(device_counts):
         encrypted = cpabe.encrypt(test_message, "model and subscription_0")
         encrypt_time = time.time() - start_time
         results["cpabe_encrypt_time"].append(encrypt_time)
+        # 최소한의 로깅만 수행
         print(f"CP-ABE encryption time: {encrypt_time:.6f}s")
 
         # === 기존 방식 ===
@@ -287,63 +291,113 @@ def run_access_limitation_experiment(device_counts):
     # 결과 저장용 딕셔너리
     results = {
         "device_counts": device_counts,
-        "cpabe_limit_time": [],  # CP-ABE: 기기 비활성화 시간 (시간 제한 속성)
-        "trad_blacklist_time": [],  # 기존 방식: 블랙리스트 추가 시간
-        "trad_rekey_time": [],  # 기존 방식: 키 재발급 시간
+        "cpabe_limit_time": [],
+        "trad_blacklist_time": [],
+        "trad_rekey_time": [],
     }
+
+    # 측정 횟수 증가 (더 정확한 평균값 계산을 위해)
+    measurement_repeats = 5
 
     for device_count in device_counts:
         print(f"\nNumber of devices: {device_count}")
 
         # === CP-ABE 접근 제한 - 시간 제한 속성 ===
-        # 시스템 초기화
-        cpabe = DynamicCPABE()
-        cpabe.setup()
-        authority = KeyAuthority(cpabe)
+        # 측정 변동성 감소를 위해 여러 번 측정 후 평균 계산
+        cpabe_limit_times = []
 
-        # 구독 정책 설정
-        authority.set_renewal_policy(
-            "subscription", max_renewals=None, renewal_period_days=30
+        for _ in range(measurement_repeats):
+            # 시스템 초기화
+            cpabe = DynamicCPABE()
+            cpabe.setup()
+            authority = KeyAuthority(cpabe)
+
+            # 구독 정책 설정
+            authority.set_renewal_policy(
+                "subscription", max_renewals=None, renewal_period_days=30
+            )
+
+            # 기기 등록
+            for i in range(device_count):
+                device_id = f"device_{i}"
+                authority.register_device(device_id, ["model", "serialNumber"], 30)
+
+            # 메모리 청소를 위한 가비지 컬렉션 명시적 호출
+            import gc
+
+            gc.collect()
+
+            # 첫 번째 기기 비활성화 시간 측정
+            device_to_limit = "device_0"
+            # time 충돌 문제 해결 - time 모듈 직접 import
+            import time as time_module  # 별도 이름으로 임포트
+
+            start_time = time_module.time()
+            authority.set_device_inactive(device_to_limit)
+            limit_time = time_module.time() - start_time
+            cpabe_limit_times.append(limit_time)
+
+        # 평균값 계산 (이상치 제거 후)
+        if len(cpabe_limit_times) > 2:
+            # 최대값과 최소값 제거 (이상치 제거)
+            cpabe_limit_times.remove(max(cpabe_limit_times))
+            cpabe_limit_times.remove(min(cpabe_limit_times))
+
+        avg_cpabe_limit_time = sum(cpabe_limit_times) / len(cpabe_limit_times)
+        results["cpabe_limit_time"].append(avg_cpabe_limit_time)
+        print(
+            f"CP-ABE device deactivation time: {avg_cpabe_limit_time:.6f}s (avg of {len(cpabe_limit_times)} measurements)"
         )
 
-        # 기기 등록
-        for i in range(device_count):
-            device_id = f"device_{i}"
-            authority.register_device(device_id, ["model", "serialNumber"], 30)
+        # === 기존 방식 접근 제한 === (유사하게 여러 번 측정하여 평균 계산)
+        trad_blacklist_times = []
+        trad_rekey_times = []
 
-        # 첫 번째 기기 비활성화 시간 측정
-        device_to_limit = "device_0"
-        start_time = time.time()
-        authority.set_device_inactive(device_to_limit)
-        limit_time = time.time() - start_time
-        results["cpabe_limit_time"].append(limit_time)
-        print(f"CP-ABE device deactivation time: {limit_time:.6f}s")
+        for _ in range(measurement_repeats):
+            trad = TraditionalApproach()
+            trad.setup()
 
-        # === 기존 방식 접근 제한 ===
-        trad = TraditionalApproach()
-        trad.setup()
+            # 키 생성
+            for i in range(device_count):
+                device_id = f"device_{i}"
+                trad.generate_key(device_id)
 
-        # 키 생성
-        for i in range(device_count):
-            device_id = f"device_{i}"
-            trad.generate_key(device_id)
+            # 첫 번째 기기 블랙리스트 추가 시간
+            device_to_limit = "device_0"
+            start_blacklist_time = time_module.time()  # time_module 사용
+            trad.revoke_access(device_to_limit)
+            blacklist_time = time_module.time() - start_blacklist_time
+            trad_blacklist_times.append(blacklist_time)
 
-        # 첫 번째 기기 블랙리스트 추가 시간
-        device_to_limit = "device_0"
-        start_time = time.time()
-        trad.revoke_access(device_to_limit)
-        blacklist_time = time.time() - start_time
-        results["trad_blacklist_time"].append(blacklist_time)
-        print(f"Traditional approach blacklist addition time: {blacklist_time:.6f}s")
+            # 다른 모든 기기의 키 재발급 시간 (기존 방식의 추가 오버헤드)
+            start_rekey_time = time_module.time()  # time_module 사용
+            trad.refresh_keys()
+            rekey_time = time_module.time() - start_rekey_time
+            trad_rekey_times.append(rekey_time)
 
-        # 다른 모든 기기의 키 재발급 시간 (기존 방식의 추가 오버헤드)
-        start_time = time.time()
-        trad.refresh_keys()
-        rekey_time = time.time() - start_time
-        results["trad_rekey_time"].append(rekey_time)
-        print(f"Traditional approach key reissue time (all devices): {rekey_time:.6f}s")
+        # 평균값 계산 (이상치 제거 후)
+        if len(trad_blacklist_times) > 2:
+            trad_blacklist_times.remove(max(trad_blacklist_times))
+            trad_blacklist_times.remove(min(trad_blacklist_times))
 
-    # 그래프 저장 - 절대 경로 사용
+        if len(trad_rekey_times) > 2:
+            trad_rekey_times.remove(max(trad_rekey_times))
+            trad_rekey_times.remove(min(trad_rekey_times))
+
+        avg_blacklist_time = sum(trad_blacklist_times) / len(trad_blacklist_times)
+        avg_rekey_time = sum(trad_rekey_times) / len(trad_rekey_times)
+
+        results["trad_blacklist_time"].append(avg_blacklist_time)
+        results["trad_rekey_time"].append(avg_rekey_time)
+
+        print(
+            f"Traditional approach blacklist addition time: {avg_blacklist_time:.6f}s (avg of {len(trad_blacklist_times)} measurements)"
+        )
+        print(
+            f"Traditional approach key reissue time (all devices): {avg_rekey_time:.6f}s (avg of {len(trad_rekey_times)} measurements)"
+        )
+
+    # 그래프 생성 및 저장
     output_dir = os.path.join(parent_dir, "experiment_results")
     output_path = os.path.join(output_dir, "access_limitation_comparison.png")
 
@@ -388,11 +442,53 @@ def run_access_limitation_experiment(device_counts):
     plt.savefig(output_path)
     print(f"그래프 저장됨: {output_path}")
 
+    # 추가: 이상치 탐지 및 표시
+    plt.figure(figsize=(10, 6))
+    plt.plot(
+        device_counts, results["cpabe_limit_time"], "o-", label="CP-ABE (Measured)"
+    )
+
+    # 추세선 추가 (노이즈 제거)
+    from scipy import optimize
+
+    def linear_func(x, a, b):
+        return a * x + b
+
+    # 선형 추세선 계산
+    popt, _ = optimize.curve_fit(
+        linear_func, device_counts, results["cpabe_limit_time"]
+    )
+    trend_values = [linear_func(x, *popt) for x in device_counts]
+
+    plt.plot(device_counts, trend_values, "r--", label="CP-ABE (Trend)")
+    plt.xlabel("Number of Devices")
+    plt.ylabel("Access Limitation Time (s)")
+    plt.title("CP-ABE Access Limitation Time Analysis")
+    plt.legend()
+    plt.grid(True)
+
+    # 이상치 표시
+    threshold = 0.2  # 추세값과 20% 이상 차이나면 이상치로 표시
+    for i, (count, time, trend) in enumerate(
+        zip(device_counts, results["cpabe_limit_time"], trend_values)
+    ):
+        if abs(time - trend) / trend > threshold:
+            plt.annotate(
+                f"Outlier",
+                xy=(count, time),
+                xytext=(count, time * 1.2),
+                arrowprops=dict(arrowstyle="->", color="red"),
+            )
+
+    outlier_path = os.path.join(output_dir, "access_limitation_outliers.png")
+    plt.savefig(outlier_path)
+    print(f"이상치 분석 그래프 저장됨: {outlier_path}")
+
     return results
 
 
 def run_renewal_experiment():
-    """구독 갱신 효율성 비교 실험"""
+    """구독 갱신 효율성 비교 실험 - 갱신 속성 수 영향 추가"""
     print(
         "\n=== Subscription Renewal Experiment: Partial Key Update vs. Full Key Reissue ==="
     )
@@ -403,103 +499,313 @@ def run_renewal_experiment():
     # 결과 저장용 딕셔너리
     results = {
         "attribute_counts": attribute_counts,
-        "partial_update_time": [],
-        "full_rekey_time": [],
+        "partial_update_time_single": [],  # 단일 속성 갱신
+        "partial_update_time_half": [],  # 절반 속성 갱신
+        "partial_update_time_all": [],  # 전체 속성 갱신
+        "full_rekey_time": [],  # 전체 키 재발급
     }
 
     for attr_count in attribute_counts:
         print(f"\nTotal attributes: {attr_count}")
 
-        # === 부분 키 갱신 ===
-        # 시스템 초기화
+        # === 시스템 초기화 ===
         cpabe = DynamicCPABE()
         cpabe.setup()
 
         # 페이딩 함수 등록
-        subscription_function = LinearFadingFunction("subscription", 3600)
-        cpabe.register_fading_function("subscription", subscription_function)
+        for i in range(attr_count):
+            attr_name = f"attr_{i}"
+            fading_function = LinearFadingFunction(attr_name, 3600)
+            cpabe.register_fading_function(attr_name, fading_function)
 
         # 사용자 생성
         user_id = cpabe.create_user_record("test_user")
 
-        # 속성 준비 (subscription + 나머지는 정적 속성)
-        attributes = ["subscription"]
-        for i in range(1, attr_count):
-            attributes.append(f"attr_{i}")
+        # 속성 준비 - 모두 동적 속성으로 설정
+        attributes = [f"attr_{i}" for i in range(attr_count)]
 
         # 초기 키 생성
         key = cpabe.keygen_with_dynamic_attributes(user_id, attributes)
 
-        # 구독 속성만 갱신 시간 측정
+        # 1. 단일 속성 갱신 (attr_0만 갱신)
         start_time = time.time()
-        subscription_attr = cpabe.update_attribute(user_id, "subscription")
-        updated_key = cpabe.merge_attribute_to_key(key, subscription_attr)
-        partial_update_time = time.time() - start_time
-        results["partial_update_time"].append(partial_update_time)
-        print(f"Partial key update time: {partial_update_time:.6f}s")
+        single_attr = cpabe.update_attribute(user_id, "attr_0")
+        updated_key = cpabe.merge_attribute_to_key(key, single_attr)
+        single_update_time = time.time() - start_time
+        results["partial_update_time_single"].append(single_update_time)
+        print(f"Single attribute update time: {single_update_time:.6f}s")
 
-        # === 전체 키 재발급 ===
+        # 2. 절반 속성 갱신
+        if attr_count > 1:
+            start_time = time.time()
+            half_key = dict(key)
+            half_attrs_count = attr_count // 2
+            for i in range(half_attrs_count):
+                attr_name = f"attr_{i}"
+                attr = cpabe.update_attribute(user_id, attr_name)
+                half_key = cpabe.merge_attribute_to_key(half_key, attr)
+            half_update_time = time.time() - start_time
+            results["partial_update_time_half"].append(half_update_time)
+            print(
+                f"Half attributes ({half_attrs_count}) update time: {half_update_time:.6f}s"
+            )
+        else:
+            # 속성이 1개인 경우 단일 속성 시간과 동일
+            results["partial_update_time_half"].append(single_update_time)
+
+        # 3. 모든 속성 갱신 (부분 갱신 방식으로)
+        start_time = time.time()
+        all_key = dict(key)
+        for i in range(attr_count):
+            attr_name = f"attr_{i}"
+            attr = cpabe.update_attribute(user_id, attr_name)
+            all_key = cpabe.merge_attribute_to_key(all_key, attr)
+        all_update_time = time.time() - start_time
+        results["partial_update_time_all"].append(all_update_time)
+        print(f"All attributes update time (partial method): {all_update_time:.6f}s")
+
+        # 4. 전체 키 재발급 방식
         start_time = time.time()
         new_key = cpabe.keygen_with_dynamic_attributes(user_id, attributes)
         full_rekey_time = time.time() - start_time
         results["full_rekey_time"].append(full_rekey_time)
         print(f"Full key reissue time: {full_rekey_time:.6f}s")
 
-        # 메모리 사용량 비교
-        import sys
-
-        partial_update_size = sys.getsizeof(subscription_attr)
-        full_key_size = sys.getsizeof(new_key)
-        print(f"Partial key update data size: {partial_update_size} bytes")
-        print(f"Full key data size: {full_key_size} bytes")
-        print(f"Data savings: {(1 - partial_update_size/full_key_size)*100:.1f}%")
+        # 효율성 비교
+        print(
+            f"Efficiency ratio (full/single): {full_rekey_time / single_update_time:.2f}x"
+        )
+        if attr_count > 1:
+            print(
+                f"Efficiency ratio (full/half): {full_rekey_time / half_update_time:.2f}x"
+            )
+        print(
+            f"Efficiency ratio (full/all partial): {full_rekey_time / all_update_time:.2f}x"
+        )
 
     # 그래프 저장 - 절대 경로 사용
     output_dir = os.path.join(parent_dir, "experiment_results")
     output_path = os.path.join(output_dir, "renewal_comparison.png")
 
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(12, 10))
 
-    # 갱신 시간 비교 그래프
-    plt.subplot(1, 2, 1)
+    # 1. 갱신 시간 비교 그래프
+    plt.subplot(2, 1, 1)
     plt.plot(
         attribute_counts,
-        results["partial_update_time"],
+        results["partial_update_time_single"],
         "o-",
-        label=LABELS["부분 키 갱신"],
+        label="Single Attribute Update",
     )
     plt.plot(
         attribute_counts,
-        results["full_rekey_time"],
+        results["partial_update_time_half"],
         "s-",
-        label=LABELS["전체 키 재발급"],
+        label="Half Attributes Update",
     )
-    plt.xlabel(LABELS["총 속성 수"])
-    plt.ylabel(LABELS["갱신 시간 (초)"])
-    plt.title(LABELS["속성 수에 따른 키 갱신 시간 비교"])
+    plt.plot(
+        attribute_counts,
+        results["partial_update_time_all"],
+        "^-",
+        label="All Attributes Update",
+    )
+    plt.plot(
+        attribute_counts, results["full_rekey_time"], "d-", label="Full Key Reissue"
+    )
+    plt.xlabel("Total Number of Attributes")
+    plt.ylabel("Update Time (s)")
+    plt.title("Key Update Time vs. Number of Attributes")
     plt.legend()
     plt.grid(True)
 
-    # 효율성 개선 비율
-    plt.subplot(1, 2, 2)
-    improvement_ratio = [
-        full / partial
-        for partial, full in zip(
-            results["partial_update_time"], results["full_rekey_time"]
+    # 2. 효율성 개선 비율
+    plt.subplot(2, 1, 2)
+    improvement_ratio_single = [
+        full / single
+        for single, full in zip(
+            results["partial_update_time_single"], results["full_rekey_time"]
         )
     ]
-    plt.plot(attribute_counts, improvement_ratio, "o-")
-    plt.axhline(y=1.0, color="r", linestyle="--")
-    plt.xlabel(LABELS["총 속성 수"])
-    plt.ylabel(LABELS["효율성 개선 비율 (전체/부분)"])
-    plt.title(LABELS["부분 키 갱신의 효율성 개선 비율"])
+    improvement_ratio_half = [
+        full / half
+        for half, full in zip(
+            results["partial_update_time_half"], results["full_rekey_time"]
+        )
+    ]
+    improvement_ratio_all = [
+        full / all_partial
+        for all_partial, full in zip(
+            results["partial_update_time_all"], results["full_rekey_time"]
+        )
+    ]
+
+    plt.plot(
+        attribute_counts,
+        improvement_ratio_single,
+        "o-",
+        label="Single Attribute Update",
+    )
+    plt.plot(
+        attribute_counts, improvement_ratio_half, "s-", label="Half Attributes Update"
+    )
+    plt.plot(
+        attribute_counts, improvement_ratio_all, "^-", label="All Attributes Update"
+    )
+    plt.axhline(y=1.0, color="r", linestyle="--", label="Break-even point")
+    plt.xlabel("Total Number of Attributes")
+    plt.ylabel("Efficiency Ratio (Full/Partial)")
+    plt.title("Efficiency Improvement of Partial Key Update")
+    plt.legend()
     plt.grid(True)
 
     plt.tight_layout()
     plt.savefig(output_path)
     print(f"그래프 저장됨: {output_path}")
 
-    return results
+    # 교차점 찾기 (부분 갱신이 전체 갱신보다 느려지는 지점)
+    crossover_points = {}
+
+    # 갱신 속성 비율에 따른 교차점 분석
+    for update_type, times in [
+        ("single", results["partial_update_time_single"]),
+        ("half", results["partial_update_time_half"]),
+        ("all", results["partial_update_time_all"]),
+    ]:
+        try:
+            from scipy import interpolate, optimize
+
+            # 데이터 보간
+            f_partial = interpolate.interp1d(
+                attribute_counts, times, kind="linear", fill_value="extrapolate"
+            )
+            f_full = interpolate.interp1d(
+                attribute_counts,
+                results["full_rekey_time"],
+                kind="linear",
+                fill_value="extrapolate",
+            )
+
+            # 차이 함수 정의
+            def difference(x):
+                return f_partial(x) - f_full(x)
+
+            # 교차점 추정
+            x_range = np.linspace(
+                min(attribute_counts), max(attribute_counts) * 2, 1000
+            )
+            for i in range(len(x_range) - 1):
+                if difference(x_range[i]) * difference(x_range[i + 1]) <= 0:
+                    # 부호 변화 지점 = 교차점
+                    try:
+                        crossover = optimize.brentq(
+                            difference, x_range[i], x_range[i + 1]
+                        )
+                        crossover_points[update_type] = (
+                            int(crossover) if crossover > 0 else "No crossover"
+                        )
+                        break
+                    except:
+                        crossover_points[update_type] = "Calculation error"
+
+            if update_type not in crossover_points:
+                # 범위 내에서 교차점을 찾지 못한 경우
+                crossover_points[update_type] = "Not found in range"
+
+        except Exception as e:
+            crossover_points[update_type] = f"Analysis failed: {str(e)}"
+
+    print("\n교차점 분석 결과 (부분 갱신이 전체 갱신보다 느려지는 속성 수):")
+    for update_type, crossover in crossover_points.items():
+        print(f"- {update_type} 속성 갱신: {crossover}")
+
+    # 별도 그래프로 교차점 시각화
+    output_path = os.path.join(output_dir, "renewal_crossover_analysis.png")
+    plt.figure(figsize=(10, 6))
+
+    # 확장된 범위로 교차점 시각화
+    extended_attr_counts = list(attribute_counts) + [16, 18, 20, 22, 24, 26, 28, 30]
+
+    # 보간 함수로 확장된 데이터 생성
+    try:
+        f_single = interpolate.interp1d(
+            attribute_counts,
+            results["partial_update_time_single"],
+            kind="linear",
+            fill_value="extrapolate",
+        )
+        f_half = interpolate.interp1d(
+            attribute_counts,
+            results["partial_update_time_half"],
+            kind="linear",
+            fill_value="extrapolate",
+        )
+        f_all = interpolate.interp1d(
+            attribute_counts,
+            results["partial_update_time_all"],
+            kind="linear",
+            fill_value="extrapolate",
+        )
+        f_full = interpolate.interp1d(
+            attribute_counts,
+            results["full_rekey_time"],
+            kind="linear",
+            fill_value="extrapolate",
+        )
+
+        extended_single = [f_single(x) for x in extended_attr_counts]
+        extended_half = [f_half(x) for x in extended_attr_counts]
+        extended_all = [f_all(x) for x in extended_attr_counts]
+        extended_full = [f_full(x) for x in extended_attr_counts]
+
+        plt.plot(
+            extended_attr_counts, extended_single, "o-", label="Single Attribute Update"
+        )
+        plt.plot(
+            extended_attr_counts, extended_half, "s-", label="Half Attributes Update"
+        )
+        plt.plot(
+            extended_attr_counts, extended_all, "^-", label="All Attributes Update"
+        )
+        plt.plot(extended_attr_counts, extended_full, "d-", label="Full Key Reissue")
+
+        # 교차점 표시
+        for update_type, crossover in crossover_points.items():
+            if isinstance(crossover, (int, float)):
+                if update_type == "single":
+                    plt.axvline(
+                        x=crossover,
+                        color="green",
+                        linestyle="--",
+                        label=f"Single Attr Crossover: ~{int(crossover)} attrs",
+                    )
+                elif update_type == "half":
+                    plt.axvline(
+                        x=crossover,
+                        color="orange",
+                        linestyle="--",
+                        label=f"Half Attrs Crossover: ~{int(crossover)} attrs",
+                    )
+                elif update_type == "all":
+                    plt.axvline(
+                        x=crossover,
+                        color="red",
+                        linestyle="--",
+                        label=f"All Attrs Crossover: ~{int(crossover)} attrs",
+                    )
+
+        plt.xlabel("Total Number of Attributes")
+        plt.ylabel("Update Time (s)")
+        plt.title("Key Update Time and Crossover Analysis")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(output_path)
+        print(f"교차점 분석 그래프 저장됨: {output_path}")
+
+    except Exception as e:
+        print(f"교차점 시각화 오류: {str(e)}")
+
+    return {"results": results, "crossover_points": crossover_points}
 
 
 def run_bandwidth_experiment(device_counts):
@@ -745,6 +1051,9 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     print(f"실험 결과 저장 경로: {output_dir}")
 
+    # 실험 환경 설정 - 로깅 제한
+    os.environ["CP_ABE_DEBUG"] = "0"  # 디버그 로깅 비활성화
+
     # 1. 확장성 실험
     device_counts = [1, 10, 50, 100, 500, 1000]
     scaling_results = run_scaling_experiment(device_counts)
@@ -752,7 +1061,7 @@ def main():
     # 2. 접근 제한 실험 - 취소 대신 시간 제한으로 대체
     access_limitation_results = run_access_limitation_experiment(device_counts)
 
-    # 3. 구독 갱신 실험
+    # 3. 구독 갱신 실험 - 개선된 버전
     renewal_results = run_renewal_experiment()
 
     # 4. 대역폭 사용량 실험
@@ -769,9 +1078,25 @@ def main():
     print(
         f"2. Access limitation: CP-ABE uses time-based attributes instead of manual revocation"
     )
-    print(
-        f"3. Subscription renewal: Partial key update more efficient as attribute count increases"
-    )
+
+    # 갱신 결과 요약 업데이트
+    if isinstance(renewal_results, dict) and "crossover_points" in renewal_results:
+        crossovers = renewal_results["crossover_points"]
+        print("3. Subscription renewal efficiency:")
+        print(
+            f"   - Single attribute update: efficient until {crossovers.get('single', 'N/A')} attributes"
+        )
+        print(
+            f"   - Half attributes update: efficient until {crossovers.get('half', 'N/A')} attributes"
+        )
+        print(
+            f"   - All attributes update: efficient until {crossovers.get('all', 'N/A')} attributes"
+        )
+    else:
+        print(
+            "3. Subscription renewal: Partial key update more efficient as attribute count increases"
+        )
+
     print(
         f"4. Bandwidth usage: CP-ABE bandwidth savings increase with number of devices"
     )

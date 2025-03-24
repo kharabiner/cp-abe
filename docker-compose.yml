@@ -15,6 +15,8 @@ services:
       - PYTHONIOENCODING=utf-8
       # 모듈 로딩 개선
       - PYTHONHASHSEED=0
+      # CP-ABE 디버깅 로깅 제어 (1=활성화, 0 또는 미설정=비활성화)
+      - CP_ABE_DEBUG=0
     # IPC 및 공유 메모리 사용 설정
     ipc: host
     # 디버깅을 위한 TTY 및 표준 입력 활성화

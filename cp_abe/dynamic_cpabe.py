@@ -335,6 +335,11 @@ class DynamicCPABE(IoTCPABE):
         """
         동적 속성을 고려하여 메시지 암호화
         """
+        # 디버깅 로그 출력 여부 확인
+        import os
+
+        debug_mode = os.environ.get("CP_ABE_DEBUG") == "1"
+
         # 빈 정책인 경우 처리
         if not policy_attributes:
             raise ValueError("정책 속성이 비어 있습니다")
@@ -352,14 +357,17 @@ class DynamicCPABE(IoTCPABE):
                     # 정적 속성은 그대로 사용
                     transformed_policy.append(attr_name)
 
-            print(f"실제 사용 정책: {transformed_policy}")
+            # 조건부 로깅
+            if debug_mode:
+                print(f"실제 사용 정책: {transformed_policy}")
 
             # 암호화 수행 - IoTCPABE의 encrypt 메서드 사용
             try:
                 result = self.encrypt(msg, transformed_policy)
                 return result
             except Exception as e:
-                print(f"암호화 오류: {str(e)}")
+                if debug_mode:
+                    print(f"암호화 오류: {str(e)}")
                 return None
         else:
             # 정책이 문자열이나 다른 형태인 경우
@@ -367,7 +375,8 @@ class DynamicCPABE(IoTCPABE):
                 result = self.encrypt(msg, policy_attributes)
                 return result
             except Exception as e:
-                print(f"암호화 오류: {str(e)}")
+                if debug_mode:
+                    print(f"암호화 오류: {str(e)}")
                 return None
 
     def decrypt(self, ciphertext, key):

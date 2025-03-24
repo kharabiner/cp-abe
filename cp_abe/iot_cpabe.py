@@ -62,8 +62,10 @@ class IoTCPABE:
         # 영숫자만 유지 (언더스코어 제외)
         sanitized = "".join(c for c in sanitized if c.isalnum())
 
-        # 변환 정보 출력
-        if sanitized != original.upper():
+        # 환경 변수로 로깅 제어 (CP_ABE_DEBUG 환경변수가 설정된 경우에만 로깅)
+        import os
+
+        if os.environ.get("CP_ABE_DEBUG") == "1" and sanitized != original.upper():
             print(f"속성 변환: {original} -> {sanitized}")
 
         return sanitized
@@ -85,7 +87,11 @@ class IoTCPABE:
                 safe_attrs.append(safe_attr)
                 orig_to_safe[attr] = safe_attr
 
-        print(f"처리된 속성 목록: {safe_attrs}")
+        # 디버깅 로그 출력 여부를 환경 변수로 제어
+        import os
+
+        if os.environ.get("CP_ABE_DEBUG") == "1":
+            print(f"처리된 속성 목록: {safe_attrs}")
 
         # 키 생성
         key = self.cpabe.keygen(self.pk, self.mk, safe_attrs)
